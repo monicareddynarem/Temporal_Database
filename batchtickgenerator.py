@@ -3,22 +3,14 @@ import numpy as np
 import time
 import io
 from datetime import datetime, timedelta
-
-# --- 1. DB CONFIGURATION ---
-DB_CONFIG = {
-    "dbname": "23CS10059",
-    "user": "23CS10059",
-    "password": "ashok@123", # <-- UPDATE THIS
-    "host": "10.5.18.102",
-    "port": "5432"
-}
+from connection import get_db_connection
 
 symbols_list = ['GOOGL','META','TSLA','NVDA','AMZN','NFLX','MSFT','AAPL','TSMC','INTC']
 
 def setup_database(conn):
     """Ensures the table exists, has correct types, and is optimized for speed."""
     with conn.cursor() as cursor:
-        # 1. Create table with correct NUMERIC type for price to avoid "627.18" integer errors
+
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS raw_ticks (
                 symbol VARCHAR(10),
@@ -27,8 +19,10 @@ def setup_database(conn):
                 ts TIMESTAMP
             );
         """)
-        # 2. Make it UNLOGGED for massive I/O speed boost
-        cursor.execute("ALTER TABLE raw_ticks SET UNLOGGED;")
+        # 2. You cannot make the parent partitioned table UNLOGGED
+        # But you can make each individual partition UNLOGGED
+        # cursor.execute("ALTER TABLE raw_ticks SET UNLOGGED;")
+
         # 3. Session-level speed boosts
         cursor.execute("SET synchronous_commit = OFF;")
     conn.commit()
@@ -36,7 +30,7 @@ def setup_database(conn):
 def insert_tick():
     conn = None
     try:
-        conn = psycopg2.connect(**DB_CONFIG)
+        conn = get_db_connection()
         setup_database(conn)
         
         print('\n--- FINAL VECTORIZED SPEED DEMON ---')
@@ -53,14 +47,14 @@ def insert_tick():
             real_start = time.time()
             total_ticks = n_speed * ticks_per_v_sec
             
-            # --- PHASE 1: VECTORIZED GENERATION ---
+            # PHASE 1: VECTORIZED GENERATION
             gen_start = time.time()
             syms = np.random.choice(symbols_list, size=total_ticks)
             prices = np.round(np.random.uniform(100.0, 1500.0, size=total_ticks), 2)
             volumes = np.random.randint(1, 101, size=total_ticks)
             gen_time = time.time() - gen_start
 
-            # --- PHASE 2: HIGH-SPEED STRING BUFFERING ---
+            #  PHASE 2: HIGH-SPEED STRING BUFFERING 
             buf_start = time.time()
             
             # Generate accurate timestamps for every single tick
@@ -78,7 +72,7 @@ def insert_tick():
             f = io.StringIO('\n'.join(lines) + '\n')
             buf_time = time.time() - buf_start
 
-            # --- PHASE 3: STREAMING COPY ---
+            #  PHASE 3: STREAMING COPY 
             db_start = time.time()
             with conn.cursor() as cursor:
                 cursor.copy_from(f, 'raw_ticks', sep='\t', columns=('symbol', 'price', 'volume', 'ts'))
