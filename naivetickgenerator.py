@@ -48,7 +48,11 @@ def insert_tick():
             print(f"[{datetime.now().strftime('%H:%M:%S')}] Inserted {len(batch)} ticks | Virtual Clock: {virtual_time.strftime('%H:%M:%S')}")
 
             elapsed_real_time = time.time() - real_start_time
-            time.sleep(max(0, 1.0 - elapsed_real_time))
+
+            if elapsed_real_time < 1.0:
+                time.sleep(1.0 - elapsed_real_time)
+            else:
+                print(f"  !! HARDWARE LIMIT REACHED: Loop took {elapsed_real_time:.2f}s")
 
     except KeyboardInterrupt:
         print('\nInterrupted by user')
