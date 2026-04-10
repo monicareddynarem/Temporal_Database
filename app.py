@@ -92,7 +92,7 @@ def fetch_storage_stats():
 # 3. SIDEBAR & NAVIGATION
 # ==========================================
 with st.sidebar:
-    st.title("⚙️ Controls")
+    st.title("Controls")
     selected_symbol = st.selectbox("Symbol", ['GOOGL','META','TSLA','NVDA','AMZN','NFLX','MSFT','AAPL','TSMC','INTC'])
     
     st.subheader("Time Interval Selection")
@@ -102,14 +102,14 @@ with st.sidebar:
     res = st.radio("Interval Resolution", ["1-Sec", "1-Min"])
     table = "ohlcv_1s" if res == "1-Sec" else "ohlcv_1m"
     
-    if st.button("🔄 Refresh Data", use_container_width=True):
+    if st.button("Refresh Data", use_container_width=True):
         st.cache_data.clear()
 
 # ==========================================
 # 4. MAIN LAYOUT
 # ==========================================
-st.title("📈 Query Stack: Temporal Database Prototype")
-tab_market, tab_bench = st.tabs(["📊 Market Analysis", "⚡ Optimization Benchmarks"])
+st.title(" Query Stack: Temporal Database Prototype")
+tab_market, tab_bench = st.tabs([" Market Analysis", " Optimization Benchmarks"])
 
 # ------------------------------------------
 # TAB 1: MARKET ANALYSIS (Requirements 1-6)
@@ -139,15 +139,15 @@ with tab_market:
         # --- Display Requirement Metrics ---
         st.subheader("Strategic Performance Indicators")
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Latest Price (Req. 5)", f"${latest_price:.2f}")
-        c2.metric("Total Volume (Req. 4)", f"{total_volume:,}")
-        c3.metric("Price Volatility (Req. 6)", f"{volatility:.4f}")
-        c4.metric("20-SMA (Req. 3)", f"${curr_sma:.2f}")
+        c1.metric("Latest Price", f"${latest_price:.2f}")
+        c2.metric("Total Volume", f"{total_volume:,}")
+        c3.metric("Price Volatility ", f"{volatility:.4f}")
+        c4.metric("Moving Average", f"${curr_sma:.2f}")
 
         st.divider()
 
         # --- Requirement 2: OHLC Aggregation (Visual Chart) ---
-        st.subheader("Financial Charting (Requirement 2)")
+        st.subheader("Financial Charting")
         fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_width=[0.3, 0.7])
         
         # Candlestick View
@@ -170,18 +170,18 @@ with tab_market:
         st.plotly_chart(fig, use_container_width=True)
 
         # --- Requirement 1: Time Range Query (Tabular Results) ---
-        st.subheader("Time Range Query Results (Requirement 1)")
+        st.subheader("Time Range Query Results")
         st.dataframe(df, use_container_width=True)
 
 # ------------------------------------------
 # TAB 2: BENCHMARKS (Latency + Storage)
 # ------------------------------------------
 with tab_bench:
-    st.header("⚡ System Performance Benchmarks")
+    st.header("System Performance Benchmarks")
     
     # Latency Benchmark
     st.subheader("1. Query Latency Analysis")
-    if st.button("🚀 Run Live Analytics Benchmark", type="primary"):
+    if st.button("Run Live Analytics Benchmark", type="primary"):
         bench_df = run_live_benchmark(selected_symbol, start_dt, end_dt)
         st.table(bench_df)
         
