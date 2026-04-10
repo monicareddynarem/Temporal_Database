@@ -67,9 +67,10 @@ def run_aggr_pipeline():
                 """
                 for r in rows:
                     cursor.execute(ins_query, r)
+                print(f"--- [ROLLUP] Second {last_proc_ts.strftime('%H:%M:%S')} finalized ---")
 
-            if curr_win_end.second == 0:
-                rollup_to_1m_table(cursor, curr_win_end)
+                if curr_win_end.second == 0:
+                    rollup_to_1m_table(cursor, curr_win_end)
 
             last_proc_ts = curr_win_end
             cursor.execute("UPDATE aggregation_watermarks SET last_processed_ts = %s WHERE aggregation_interval = '1s'", (last_proc_ts,))
@@ -78,7 +79,8 @@ def run_aggr_pipeline():
     except KeyboardInterrupt:
         print("\nStopped.")
     finally:
-        if conn: conn.close()
+        if conn: 
+            conn.close()
 
 if __name__ == "__main__":
     run_aggr_pipeline()
