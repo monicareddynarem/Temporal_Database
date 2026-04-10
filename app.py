@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import psycopg2
+import numpy as np
 import time
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -10,255 +10,195 @@ from connection import get_db_connection
 # ==========================================
 # 1. PAGE CONFIGURATION
 # ==========================================
-st.set_page_config(
-    page_title="Query Stack Dashboard",
-    page_icon="📈",
-    layout="wide"
-)
+st.set_page_config(page_title="Query Stack Dashboard", layout="wide")
 
 # ==========================================
-# 2. DATABASE FETCH FUNCTIONS
+# 2. DATABASE CORE FUNCTIONS
 # ==========================================
-@st.cache_data(ttl=2)
 def fetch_ohlcv_data(symbol, table_name, start_time, end_time):
-    """Fetches real aggregated data from your PostgreSQL tables."""
-    conn = None
+    """Requirement 1: Time Range Query Logic"""
+    conn = get_db_connection()
     try:
-        conn = get_db_connection()
+        # Aligned with ts_bucket and volume from opt_tables.sql
         query = f"""
-            SELECT bucket_time, open_price, high_price, low_price, close_price, total_volume
+            SELECT ts_bucket, open_price, high_price, low_price, close_price, volume
             FROM {table_name}
-            WHERE symbol = %s AND bucket_time >= %s AND bucket_time <= %s
-            ORDER BY bucket_time ASC;
+            WHERE symbol = %s AND ts_bucket >= %s AND ts_bucket <= %s
+            ORDER BY ts_bucket DESC;
         """
         df = pd.read_sql_query(query, conn, params=(symbol, start_time, end_time))
         for col in ['open_price', 'high_price', 'low_price', 'close_price']:
             df[col] = df[col].astype(float)
         return df
-    except Exception as e:
-        st.error(f"Database Error: {e}")
-        return pd.DataFrame()
-    finally:
-        if conn: conn.close()
-
-def fetch_storage_stats():
-    """Fetches the actual on-disk size of the tables to prove storage optimization."""
-    conn = get_db_connection()
-    try:
-        query = """
-            SELECT 
-                'Raw Ticks (Unoptimized)' as table_type,
-                pg_size_pretty(pg_total_relation_size('raw_ticks')) as pretty_size,
-                pg_total_relation_size('raw_ticks') as bytes
-            UNION ALL
-            SELECT 
-                '1m Aggregates (Optimized)',
-                pg_size_pretty(pg_total_relation_size('ohlcv_1m')),
-                pg_total_relation_size('ohlcv_1m');
-        """
-        df = pd.read_sql_query(query, conn)
-        return df
     finally:
         conn.close()
 
 def run_live_benchmark(symbol, start_time, end_time):
-    """Compares querying raw ticks vs aggregates, including rows scanned."""
+    """Benchmarking: Standard DB vs. Optimized Aggregates"""
     conn = get_db_connection()
     cursor = conn.cursor()
-    
     metrics = []
     
-    # Test 1: Querying Raw Ticks
-    raw_query = "SELECT SUM(volume), COUNT(*) FROM raw_ticks WHERE symbol = %s AND ts >= %s AND ts <= %s;"
-    start = time.time()
-    cursor.execute(raw_query, (symbol, start_time, end_time))
-    raw_result = cursor.fetchone()
-    raw_time = (time.time() - start) * 1000
-    raw_rows = raw_result[1] if raw_result[1] else 0
+    # Standard DB Query (Requirement 4 on Raw Data)
+    raw_q = "SELECT SUM(volume), COUNT(*) FROM raw_ticks WHERE symbol = %s AND ts >= %s AND ts <= %s;"
+    t0 = time.perf_counter()
+    cursor.execute(raw_q, (symbol, start_time, end_time))
+    raw_res = cursor.fetchone()
+    raw_latency = (time.perf_counter() - t0) * 1000 
     
     metrics.append({
-        'Query Architecture': 'Standard DB (Raw Ticks)',
-        'Execution Latency (ms)': round(raw_time, 2),
-        'Rows Scanned': raw_rows,
-        'Rows/Sec Throughput': int((raw_rows / (raw_time / 1000))) if raw_time > 0 else 0
+        "Architecture": "Standard DB (Raw Ticks)",
+        "Latency (ms)": round(raw_latency, 3),
+        "Rows Processed": raw_res[1] if raw_res[1] else 0
     })
 
-    # Test 2: Querying Aggregates (Optimized)
-    agg_query = "SELECT SUM(total_volume), COUNT(*) FROM ohlcv_1m WHERE symbol = %s AND bucket_time >= %s AND bucket_time <= %s;"
-    start = time.time()
-    cursor.execute(agg_query, (symbol, start_time, end_time))
-    agg_result = cursor.fetchone()
-    agg_time = (time.time() - start) * 1000
-    agg_rows = agg_result[1] if agg_result[1] else 0
+    # Optimized DB Query (Requirement 4 on Aggregated Data)
+    opt_q = "SELECT SUM(volume), COUNT(*) FROM ohlcv_1m WHERE symbol = %s AND ts_bucket >= %s AND ts_bucket <= %s;"
+    t1 = time.perf_counter()
+    cursor.execute(opt_q, (symbol, start_time, end_time))
+    opt_res = cursor.fetchone()
+    opt_latency = (time.perf_counter() - t1) * 1000
     
     metrics.append({
-        'Query Architecture': 'Optimized (1m Aggregates)',
-        'Execution Latency (ms)': round(agg_time, 2),
-        'Rows Scanned': agg_rows,
-        'Rows/Sec Throughput': int((agg_rows / (agg_time / 1000))) if agg_time > 0 else 0
+        "Architecture": "Optimized (Aggregates)",
+        "Latency (ms)": round(opt_latency, 3),
+        "Rows Processed": opt_res[1] if opt_res[1] else 0
     })
     
     cursor.close()
     conn.close()
-    return pd.DataFrame(metrics).set_index('Query Architecture')
+    return pd.DataFrame(metrics).set_index("Architecture")
+
+def fetch_storage_stats():
+    """Correctly calculates size of partitioned tables"""
+    conn = get_db_connection()
+    try:
+        query = """
+            SELECT 
+                parent.relname AS "Table",
+                pg_size_pretty(SUM(pg_total_relation_size(child.oid))) AS "Size",
+                SUM(pg_total_relation_size(child.oid)) AS "Bytes"
+            FROM pg_inherits
+            JOIN pg_class parent ON pg_inherits.inhparent = parent.oid
+            JOIN pg_class child ON pg_inherits.inhrelid = child.oid
+            WHERE parent.relname IN ('raw_ticks', 'ohlcv_1m')
+            GROUP BY parent.relname;
+        """
+        return pd.read_sql_query(query, conn)
+    finally:
+        conn.close()
 
 # ==========================================
-# 3. SIDEBAR CONTROLS 
+# 3. SIDEBAR & NAVIGATION
 # ==========================================
-st.sidebar.title("⚙️ Query Controls")
-
-SYMBOLS = ['GOOGL', 'META', 'TSLA', 'NVDA', 'AMZN', 'NFLX', 'MSFT', 'AAPL', 'TSMC', 'INTC']
-selected_symbol = st.sidebar.selectbox("Select Stock Symbol", SYMBOLS)
-
-st.sidebar.subheader("Time Range")
-default_start = datetime.now() - timedelta(hours=6)
-default_end = datetime.now() + timedelta(hours=6)
-
-start_date = st.sidebar.date_input("Start Date", default_start.date())
-start_time = st.sidebar.time_input("Start Time", default_start.time())
-end_date = st.sidebar.date_input("End Date", default_end.date())
-end_time = st.sidebar.time_input("End Time", default_end.time())
-
-full_start_time = datetime.combine(start_date, start_time)
-full_end_time = datetime.combine(end_date, end_time)
-
-resolution_options = {"1-Second OHLCV": "ohlcv_1s", "1-Minute OHLCV": "ohlcv_1m"}
-resolution_label = st.sidebar.radio("Data Resolution", list(resolution_options.keys()), index=1)
-selected_table = resolution_options[resolution_label]
-
-analysis_mode = st.sidebar.selectbox("Analysis Mode", [
-    "Standard Candlestick", 
-    "Trend: Moving Average (20-SMA)", 
-    "Volatility: Bollinger Bands",
-    "Volume: VWAP"
-])
-
-st.sidebar.markdown("---")
-if st.sidebar.button("🔄 Force Data Refresh", use_container_width=True):
-    st.cache_data.clear()
+with st.sidebar:
+    st.title("⚙️ Controls")
+    selected_symbol = st.selectbox("Symbol", ['GOOGL','META','TSLA','NVDA','AMZN','NFLX','MSFT','AAPL','TSMC','INTC'])
+    
+    st.subheader("Time Interval Selection")
+    start_dt = datetime.combine(st.date_input("Start"), st.time_input("Start Time", datetime.now()-timedelta(hours=1)))
+    end_dt = datetime.combine(st.date_input("End"), st.time_input("End Time", datetime.now()+timedelta(minutes=5)))
+    
+    res = st.radio("Interval Resolution", ["1-Sec", "1-Min"])
+    table = "ohlcv_1s" if res == "1-Sec" else "ohlcv_1m"
+    
+    if st.button("🔄 Refresh Data", use_container_width=True):
+        st.cache_data.clear()
 
 # ==========================================
-# 4. MAIN LAYOUT & TABS
+# 4. MAIN LAYOUT
 # ==========================================
 st.title("📈 Query Stack: Temporal Database Prototype")
-
-tab_market, tab_performance = st.tabs(["Market Data Visualization", "DBMS Performance Dashboard"])
+tab_market, tab_bench = st.tabs(["📊 Market Analysis", "⚡ Optimization Benchmarks"])
 
 # ------------------------------------------
-# TAB 1: Market Data Visualization
+# TAB 1: MARKET ANALYSIS (Requirements 1-6)
 # ------------------------------------------
 with tab_market:
-    col1, col2 = st.columns([4, 1])
-    with col1:
-        st.subheader(f"Live Market Feed: {selected_symbol}")
-    
-    df = fetch_ohlcv_data(selected_symbol, selected_table, full_start_time, full_end_time)
+    df = fetch_ohlcv_data(selected_symbol, table, start_dt, end_dt)
     
     if df.empty:
-        st.warning(f"No data found for {selected_symbol} in this time range. Adjust your filters or check the generator.")
+        st.warning("No data found. Ensure the generator and aggregator are running.")
     else:
-        # Advanced Metric Calculations
-        current_price = df['close_price'].iloc[-1]
-        price_change = current_price - df['close_price'].iloc[0]
-        pct_change = (price_change / df['close_price'].iloc[0]) * 100
-        volatility = df['close_price'].pct_change().std() * 100 # Rough volatility calc
+        # Data Calculations for Requirements
+        df_sorted = df.sort_values('ts_bucket')
         
-        # Striking Top Metrics
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Latest Price", f"${current_price:.2f}", f"{price_change:.2f} ({pct_change:.2f}%)")
-        m2.metric("Total Volume", f"{df['total_volume'].sum():,}")
-        m3.metric("Current Volatility", f"{volatility:.3f}%" if pd.notna(volatility) else "N/A")
-        m4.metric("Data Points Rendered", f"{len(df):,}")
+        # Requirement 5: Latest Price
+        latest_price = df.iloc[0]['close_price']
+        
+        # Requirement 4: Volume Analysis
+        total_volume = df['volume'].sum()
+        
+        # Requirement 6: Price Volatility (Std Dev of Close Price)
+        volatility = df['close_price'].std()
+        
+        # Requirement 3: Moving Average (20-period SMA)
+        df_sorted['sma_20'] = df_sorted['close_price'].rolling(window=20).mean()
+        curr_sma = df_sorted['sma_20'].iloc[-1] if not df_sorted['sma_20'].isnull().all() else 0
 
-        st.markdown("---")
+        # --- Display Requirement Metrics ---
+        st.subheader("Strategic Performance Indicators")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Latest Price (Req. 5)", f"${latest_price:.2f}")
+        c2.metric("Total Volume (Req. 4)", f"{total_volume:,}")
+        c3.metric("Price Volatility (Req. 6)", f"{volatility:.4f}")
+        c4.metric("20-SMA (Req. 3)", f"${curr_sma:.2f}")
 
-        # Create Plotly Subplots
-        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
-                            vertical_spacing=0.03, subplot_titles=(f"{resolution_label} Price Action", "Traded Volume"),
-                            row_width=[0.2, 0.7])
+        st.divider()
 
-        # Base Candlestick
+        # --- Requirement 2: OHLC Aggregation (Visual Chart) ---
+        st.subheader("Financial Charting (Requirement 2)")
+        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_width=[0.3, 0.7])
+        
+        # Candlestick View
         fig.add_trace(go.Candlestick(
-            x=df['bucket_time'], open=df['open_price'], high=df['high_price'],
-            low=df['low_price'], close=df['close_price'], name='OHLC'
+            x=df_sorted['ts_bucket'], open=df_sorted['open_price'], high=df_sorted['high_price'], 
+            low=df_sorted['low_price'], close=df_sorted['close_price'], name='OHLC'
+        ), row=1, col=1)
+        
+        # SMA Overlay (Requirement 3)
+        fig.add_trace(go.Scatter(
+            x=df_sorted['ts_bucket'], y=df_sorted['sma_20'], line=dict(color='orange', width=2), name='20-SMA'
         ), row=1, col=1)
 
-        # Advanced Overlay Logic based on Sidebar Selection
-        if analysis_mode == "Trend: Moving Average (20-SMA)" and len(df) >= 20:
-            df['SMA_20'] = df['close_price'].rolling(window=20).mean()
-            fig.add_trace(go.Scatter(x=df['bucket_time'], y=df['SMA_20'], line=dict(color='#FFA500', width=2), name='20-SMA'), row=1, col=1)
-
-        elif analysis_mode == "Volatility: Bollinger Bands" and len(df) >= 20:
-            df['SMA_20'] = df['close_price'].rolling(window=20).mean()
-            df['StdDev'] = df['close_price'].rolling(window=20).std()
-            df['Upper'] = df['SMA_20'] + (df['StdDev'] * 2)
-            df['Lower'] = df['SMA_20'] - (df['StdDev'] * 2)
-            
-            fig.add_trace(go.Scatter(x=df['bucket_time'], y=df['Upper'], line=dict(color='rgba(173, 216, 230, 0.5)', width=1, dash='dot'), name='Upper Band'), row=1, col=1)
-            fig.add_trace(go.Scatter(x=df['bucket_time'], y=df['Lower'], line=dict(color='rgba(173, 216, 230, 0.5)', width=1, dash='dot'), fill='tonexty', fillcolor='rgba(173, 216, 230, 0.1)', name='Lower Band'), row=1, col=1)
-            fig.add_trace(go.Scatter(x=df['bucket_time'], y=df['SMA_20'], line=dict(color='#FFA500', width=1.5), name='SMA'), row=1, col=1)
-
-        elif analysis_mode == "Volume: VWAP":
-            # Typical Price = (High + Low + Close) / 3
-            df['Typical_Price'] = (df['high_price'] + df['low_price'] + df['close_price']) / 3
-            df['VWAP'] = (df['Typical_Price'] * df['total_volume']).cumsum() / df['total_volume'].cumsum()
-            fig.add_trace(go.Scatter(x=df['bucket_time'], y=df['VWAP'], line=dict(color='#FF1493', width=2), name='VWAP'), row=1, col=1)
-
-        # Volume Bar Chart
-        colors = ['#26A69A' if row['close_price'] >= row['open_price'] else '#EF5350' for index, row in df.iterrows()]
+        # Volume Bar (Requirement 4)
         fig.add_trace(go.Bar(
-            x=df['bucket_time'], y=df['total_volume'], marker_color=colors, name='Volume'
+            x=df_sorted['ts_bucket'], y=df_sorted['volume'], name='Volume', marker_color='#26A69A'
         ), row=2, col=1)
 
-        fig.update_layout(
-            height=650, xaxis_rangeslider_visible=False, showlegend=True, 
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-            margin=dict(l=0, r=0, t=30, b=0)
-        )
+        fig.update_layout(height=600, xaxis_rangeslider_visible=False, margin=dict(t=0, b=0))
         st.plotly_chart(fig, use_container_width=True)
 
-# ------------------------------------------
-# TAB 2: DBMS Performance Dashboard
-# ------------------------------------------
-with tab_performance:
-    st.subheader("⚡ Database Engine Benchmarks")
-    st.markdown("Mathematical proof of continuous aggregation efficiency and storage optimization.")
-    
-    col_bench, col_storage = st.columns([2, 1])
-    
-    with col_bench:
-        st.markdown("#### Execution Latency & I/O Scans")
-        if st.button("🚀 Execute Live Benchmark Query", type="primary"):
-            with st.spinner("Executing full-table scans on PostgreSQL..."):
-                metrics_df = run_live_benchmark(selected_symbol, full_start_time, full_end_time)
-                
-                # Highlight the winner
-                raw_time = metrics_df.loc['Standard DB (Raw Ticks)', 'Execution Latency (ms)']
-                agg_time = metrics_df.loc['Optimized (1m Aggregates)', 'Execution Latency (ms)']
-                
-                if agg_time > 0 and raw_time > 0:
-                    speedup = raw_time / agg_time
-                    st.success(f"**Performance Gain:** The Continuous Aggregate pipeline is **{speedup:.1f}x faster** than raw full-table scans!")
-                
-                # Plotly grouped bar chart for striking visuals
-                fig_bar = go.Figure(data=[
-                    go.Bar(name='Execution Time (ms)', x=metrics_df.index, y=metrics_df['Execution Latency (ms)'], marker_color=['#EF5350', '#26A69A']),
-                ])
-                fig_bar.update_layout(title="Query Latency Comparison", template="plotly_white", height=350)
-                st.plotly_chart(fig_bar, use_container_width=True)
-                
-                st.dataframe(metrics_df, use_container_width=True)
+        # --- Requirement 1: Time Range Query (Tabular Results) ---
+        st.subheader("Time Range Query Results (Requirement 1)")
+        st.dataframe(df, use_container_width=True)
 
-    with col_storage:
-        st.markdown("#### Disk Storage Optimization")
-        st.info("Aggregating ticks into 1-minute blocks massively reduces disk space footprint.")
+# ------------------------------------------
+# TAB 2: BENCHMARKS (Latency + Storage)
+# ------------------------------------------
+with tab_bench:
+    st.header("⚡ System Performance Benchmarks")
+    
+    # Latency Benchmark
+    st.subheader("1. Query Latency Analysis")
+    if st.button("🚀 Run Live Analytics Benchmark", type="primary"):
+        bench_df = run_live_benchmark(selected_symbol, start_dt, end_dt)
+        st.table(bench_df)
         
-        # Live Storage Query
-        storage_df = fetch_storage_stats()
-        st.dataframe(storage_df[['table_type', 'pretty_size']].set_index('table_type'), use_container_width=True)
+        raw_l = bench_df.loc["Standard DB (Raw Ticks)", "Latency (ms)"]
+        opt_l = bench_df.loc["Optimized (Aggregates)", "Latency (ms)"]
+        if opt_l > 0:
+            st.success(f"**Optimization Result:** Aggregate queries are **{raw_l/opt_l:.1f}x faster** than standard scans.")
+
+    st.divider()
+
+    # Storage Statistics
+    st.subheader("2. Storage Optimization Proof")
+    stats = fetch_storage_stats()
+    if not stats.empty:
+        st.table(stats[['Table', 'Size']])
         
-        # Pie chart of storage usage
-        if not storage_df.empty:
-            fig_pie = go.Figure(data=[go.Pie(labels=storage_df['table_type'], values=storage_df['bytes'], hole=.5, marker_colors=['#EF5350', '#26A69A'])])
-            fig_pie.update_layout(title="Database Size Footprint", showlegend=False, height=300)
-            st.plotly_chart(fig_pie, use_container_width=True)
+        raw_b = stats[stats['Table'] == 'raw_ticks']['Bytes'].values[0]
+        opt_b = stats[stats['Table'] == 'ohlcv_1m']['Bytes'].values[0]
+        if raw_b > 0:
+            st.info(f"Aggregated blocks consume only **{(opt_b/raw_b)*100:.4f}%** of the total raw data footprint.")
