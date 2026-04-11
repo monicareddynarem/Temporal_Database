@@ -28,12 +28,20 @@ ON CONFLICT (symbol) DO NOTHING;
 
 -- RAW TICKS: Daily Partitions on 'ts'
 DROP TABLE IF EXISTS raw_ticks CASCADE;
-CREATE TABLE raw_ticks (
-    ts TIMESTAMP NOT NULL,
+
+-- CREATE the new bucketed table
+CREATE TABLE raw_ticks_bucketed (
+    bucket_ts TIMESTAMP NOT NULL,
     symbol VARCHAR(10) NOT NULL REFERENCES symbols(symbol),
-    price NUMERIC(10, 2) NOT NULL,
-    volume INTEGER NOT NULL
-) PARTITION BY RANGE (ts);
+    prices REAL[] NOT NULL,
+    volumes INT[] NOT NULL,
+    offsets_ms INT[] NOT NULL  -- ms offset from bucket_ts for each tick
+) PARTITION BY RANGE (bucket_ts);
+
+-- Enable fast LZ4 compression
+ALTER TABLE raw_ticks_bucketed ALTER COLUMN prices SET COMPRESSION lz4;
+ALTER TABLE raw_ticks_bucketed ALTER COLUMN volumes SET COMPRESSION lz4;
+ALTER TABLE raw_ticks_bucketed ALTER COLUMN offsets_ms SET COMPRESSION lz4;
 
 -- 1-SECOND OHLCV: Daily Partitions on 'ts_bucket'
 DROP TABLE IF EXISTS ohlcv_1s CASCADE;

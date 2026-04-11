@@ -33,7 +33,7 @@ def rollup_to_1m_table(cursor, last_proc_ts):
         ON CONFLICT (ts_bucket, symbol) DO NOTHING;
     """
     cursor.execute(query, (last_proc_ts, last_proc_ts))
-    print(f"--- [ROLLUP] Minute {last_proc_ts.strftime('%H:%M')} finalized ---")
+    print(f"\t--- [ROLLUP] Minute {last_proc_ts.strftime('%H:%M')} finalized ---")
 
 def run_aggr_pipeline():
     conn = None
@@ -67,10 +67,14 @@ def run_aggr_pipeline():
                 """
                 for r in rows:
                     cursor.execute(ins_query, r)
+                print(f"--- [ROLLUP] Second {last_proc_ts.strftime('%H:%M:%S')} finalized ---")
 
-            if curr_win_end.second == 0:
-                rollup_to_1m_table(cursor, curr_win_end)
+                if curr_win_end.second == 0:
+                    rollup_to_1m_table(cursor, curr_win_end)
 
+            else:
+                print(f'No data found in the interval {last_proc_ts.strftime('%H:%M:%S')}, {curr_win_end.strftime('%H:%M:%S')}')
+                #break
             last_proc_ts = curr_win_end
             cursor.execute("UPDATE aggregation_watermarks SET last_processed_ts = %s WHERE aggregation_interval = '1s'", (last_proc_ts,))
             conn.commit()
@@ -78,7 +82,8 @@ def run_aggr_pipeline():
     except KeyboardInterrupt:
         print("\nStopped.")
     finally:
-        if conn: conn.close()
+        if conn: 
+            conn.close()
 
 if __name__ == "__main__":
     run_aggr_pipeline()

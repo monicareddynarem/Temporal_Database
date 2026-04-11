@@ -7,14 +7,14 @@ from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 from connection import get_db_connection
 
-# ==========================================
+
 # 1. PAGE CONFIGURATION
-# ==========================================
+
 st.set_page_config(page_title="Query Stack Dashboard", layout="wide")
 
-# ==========================================
+
 # 2. DATABASE CORE FUNCTIONS
-# ==========================================
+
 def fetch_ohlcv_data(symbol, table_name, start_time, end_time):
     """Requirement 1: Time Range Query Logic"""
     conn = get_db_connection()
@@ -88,10 +88,11 @@ def fetch_storage_stats():
     finally:
         conn.close()
 
-# ==========================================
+
 # 3. SIDEBAR & NAVIGATION
-# ==========================================
+
 with st.sidebar:
+    st.title("Controls")
     st.title("Controls")
     selected_symbol = st.selectbox("Symbol", ['GOOGL','META','TSLA','NVDA','AMZN','NFLX','MSFT','AAPL','TSMC','INTC'])
     
@@ -105,15 +106,15 @@ with st.sidebar:
     if st.button("Refresh Data", use_container_width=True):
         st.cache_data.clear()
 
-# ==========================================
+
 # 4. MAIN LAYOUT
 # ==========================================
-st.title(" Query Stack: Temporal Database Prototype")
-tab_market, tab_bench = st.tabs([" Market Analysis", " Optimization Benchmarks"])
+st.title("📈 Query Stack: Temporal Database Prototype")
+tab_market, tab_bench = st.tabs(["📊 Market Analysis", "⚡ Optimization Benchmarks"])
 
-# ------------------------------------------
+
 # TAB 1: MARKET ANALYSIS (Requirements 1-6)
-# ------------------------------------------
+
 with tab_market:
     df = fetch_ohlcv_data(selected_symbol, table, start_dt, end_dt)
     
@@ -136,7 +137,7 @@ with tab_market:
         df_sorted['sma_20'] = df_sorted['close_price'].rolling(window=20).mean()
         curr_sma = df_sorted['sma_20'].iloc[-1] if not df_sorted['sma_20'].isnull().all() else 0
 
-        # --- Display Requirement Metrics ---
+        # Display Requirement Metrics
         st.subheader("Strategic Performance Indicators")
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Latest Price", f"${latest_price:.2f}")
@@ -147,7 +148,7 @@ with tab_market:
         st.divider()
 
         # --- Requirement 2: OHLC Aggregation (Visual Chart) ---
-        st.subheader("Financial Charting")
+        st.subheader("Financial Charting (Requirement 2)")
         fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_width=[0.3, 0.7])
         
         # Candlestick View
@@ -170,12 +171,12 @@ with tab_market:
         st.plotly_chart(fig, use_container_width=True)
 
         # --- Requirement 1: Time Range Query (Tabular Results) ---
-        st.subheader("Time Range Query Results")
+        st.subheader("Time Range Query Results (Requirement 1)")
         st.dataframe(df, use_container_width=True)
 
-# ------------------------------------------
+
 # TAB 2: BENCHMARKS (Latency + Storage)
-# ------------------------------------------
+
 with tab_bench:
     st.header("System Performance Benchmarks")
     
