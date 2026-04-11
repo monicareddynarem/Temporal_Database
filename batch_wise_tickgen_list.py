@@ -27,14 +27,14 @@ def insert_tick():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        print('\n--- NUMPY NAIVE GENERATOR STARTING ---')
+        print('\n--- LIST GENERATOR STARTING ---')
         duration_minutes = int(input('Enter simulation duration in virtual minutes: '))
         n_speed = int(input('Enter speed multiplier (N virtual seconds per 1 real sec): '))
         
         virtual_time = datetime.now()
         end_v_time = virtual_time + timedelta(minutes=duration_minutes)
 
-        # Config: 100 ticks per virtual second
+        # 100 ticks per virtual second
         ticks_per_v_sec = 100
         ms_per_tick = 1000 / ticks_per_v_sec
 
@@ -42,11 +42,9 @@ def insert_tick():
             real_loop_start = time.time()
             total_ticks = n_speed * ticks_per_v_sec
             
-            # --- PHASE 1: PARTITION SAFETY ---
             # Ensure the database has a home for these timestamps
             ensure_partition(cursor, virtual_time)
 
-            # --- PHASE 2: NUMPY GENERATION ---
             gen_start = time.time()
             
             syms = np.random.choice(symbols_list, size=total_ticks)
@@ -61,7 +59,6 @@ def insert_tick():
             batch = list(zip(syms.tolist(), prices.tolist(), volumes.tolist(), timestamps.tolist()))
             gen_time = time.time() - gen_start
 
-            # --- PHASE 3: DATABASE INSERT ---
             db_start = time.time()
             sql = "INSERT INTO raw_ticks (symbol, price, volume, ts) VALUES %s"
             psycopg2.extras.execute_values(cursor, sql, batch)
@@ -71,7 +68,6 @@ def insert_tick():
             # Update virtual clock
             virtual_time += timedelta(seconds=n_speed)
 
-            # --- DIAGNOSTICS ---
             print(f"[{datetime.now().strftime('%H:%M:%S')}] Ticks: {total_ticks} | Gen: {gen_time*1000:.1f}ms | DB: {db_time*1000:.1f}ms | V-Clock: {virtual_time.strftime('%H:%M:%S')}")
 
             # Maintain real-time pacing

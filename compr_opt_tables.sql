@@ -1,6 +1,7 @@
 --  ================
 -- 1. DIMENSION TABLES
 --  ================
+DROP TABLE IF EXISTS symbols CASCADE;
 CREATE TABLE symbols (
     symbol VARCHAR(10) PRIMARY KEY,
     company_name VARCHAR(100) NOT NULL,
@@ -22,18 +23,28 @@ INSERT INTO symbols (symbol, company_name, sector) VALUES
 ON CONFLICT (symbol) DO NOTHING;
 
 --  ================
--- 2. CORE TABLES (PARTITIONED)
+-- 2. CORE TEMPORAL TABLES (PARTITIONED)
 --  ================
 
--- RAW TICKS: Daily Partitions
-CREATE TABLE raw_ticks (
-    ts TIMESTAMP NOT NULL,
-    symbol VARCHAR(10) NOT NULL REFERENCES symbols(symbol),
-    price NUMERIC(10, 2) NOT NULL,
-    volume INTEGER NOT NULL
-) PARTITION BY RANGE (ts);
+-- RAW TICKS: Daily Partitions on 'ts'
+DROP TABLE IF EXISTS raw_ticks CASCADE;
 
--- 1-SECOND OHLCV: Daily Partitions
+-- CREATE the new bucketed table
+CREATE TABLE raw_ticks_bucketed (
+    bucket_ts TIMESTAMP NOT NULL,
+    symbol VARCHAR(10) NOT NULL REFERENCES symbols(symbol),
+    prices REAL[] NOT NULL,
+    volumes INT[] NOT NULL,
+    offsets_ms INT[] NOT NULL  -- ms offset from bucket_ts for each tick
+) PARTITION BY RANGE (bucket_ts);
+
+-- Enable fast LZ4 compression
+ALTER TABLE raw_ticks_bucketed ALTER COLUMN prices SET COMPRESSION lz4;
+ALTER TABLE raw_ticks_bucketed ALTER COLUMN volumes SET COMPRESSION lz4;
+ALTER TABLE raw_ticks_bucketed ALTER COLUMN offsets_ms SET COMPRESSION lz4;
+
+-- 1-SECOND OHLCV: Daily Partitions on 'ts_bucket'
+DROP TABLE IF EXISTS ohlcv_1s CASCADE;
 CREATE TABLE ohlcv_1s (
     ts_bucket TIMESTAMP NOT NULL,
     symbol VARCHAR(10) NOT NULL REFERENCES symbols(symbol),
@@ -42,11 +53,11 @@ CREATE TABLE ohlcv_1s (
     low_price NUMERIC(10, 2),
     close_price NUMERIC(10, 2),
     volume INTEGER,
-    -- Note: PKs on partitioned tables must include the partition key (ts_bucket)
     PRIMARY KEY (ts_bucket, symbol)
 ) PARTITION BY RANGE (ts_bucket);
 
--- 1-MINUTE OHLCV: Daily Partitions
+-- 1-MINUTE OHLCV: Daily Partitions on 'ts_bucket'
+DROP TABLE IF EXISTS ohlcv_1m CASCADE;
 CREATE TABLE ohlcv_1m (
     ts_bucket TIMESTAMP NOT NULL,
     symbol VARCHAR(10) NOT NULL REFERENCES symbols(symbol),
@@ -59,68 +70,28 @@ CREATE TABLE ohlcv_1m (
 ) PARTITION BY RANGE (ts_bucket);
 
 --  ================
--- 3. THE MASTER AUTOMATION TRIGGER (Partitioning + Indexing)
+-- 3. STATE MANAGEMENT (Watermarks)
 --  ================
-
-CREATE OR REPLACE FUNCTION manage_daily_partitions()
-RETURNS TRIGGER AS $$
-DECLARE
-    p_name TEXT;
-    p_start TEXT;
-    p_end TEXT;
-    target_table TEXT := TG_TABLE_NAME;
-    ts_value TIMESTAMP;
-BEGIN
-    IF target_table = 'raw_ticks' THEN 
-        ts_value := NEW.ts;
-    ELSE 
-        ts_value := NEW.ts_bucket;
-    END IF;
-
-    p_name := target_table || '_' || to_char(ts_value, 'YYYY_MM_DD');
-    p_start := to_char(ts_value, 'YYYY-MM-DD 00:00:00');
-    p_end := to_char(ts_value + INTERVAL '1 day', 'YYYY-MM-DD 00:00:00');
-
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_class c 
-        JOIN pg_namespace n ON n.oid = c.relnamespace 
-        WHERE c.relname = p_name
-    ) THEN
-        
-        EXECUTE format(
-            'CREATE TABLE %I PARTITION OF %I FOR VALUES FROM (%L) TO (%L)',
-            p_name, target_table, p_start, p_end
-        );
-
-    END IF;
-
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Apply Partition Trigger to ALL tables
-CREATE TRIGGER trg_partition_raw BEFORE INSERT ON raw_ticks FOR EACH ROW EXECUTE FUNCTION manage_daily_partitions();
-CREATE TRIGGER trg_partition_1s  BEFORE INSERT ON ohlcv_1s  FOR EACH ROW EXECUTE FUNCTION manage_daily_partitions();
-CREATE TRIGGER trg_partition_1m  BEFORE INSERT ON ohlcv_1m  FOR EACH ROW EXECUTE FUNCTION manage_daily_partitions();
-
---  ================
--- 4. STATE MANAGEMENT (Watermarks)
---  ================
-
+-- Watermarks track the progress of the genaggregate.py pipeline
+DROP TABLE IF EXISTS aggregation_watermarks CASCADE;
 CREATE TABLE aggregation_watermarks (
     aggregation_interval VARCHAR(10) PRIMARY KEY, 
     last_processed_ts TIMESTAMP NOT NULL,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Init watermarks (Starting point)
+-- Init watermarks to the current time to avoid processing empty historical data
 INSERT INTO aggregation_watermarks (aggregation_interval, last_processed_ts) 
-VALUES ('1s', '2026-04-09 00:00:00'), ('1m', '2026-04-09 00:00:00')
-ON CONFLICT DO NOTHING;
+VALUES 
+    ('1s', CURRENT_TIMESTAMP), 
+    ('1m', CURRENT_TIMESTAMP)
+ON CONFLICT (aggregation_interval) DO UPDATE 
+SET last_processed_ts = EXCLUDED.last_processed_ts;
 
 --  ================
--- 5. PERFORMANCE LOGGING
+-- 4. PERFORMANCE LOGGING
 --  ================
+DROP TABLE IF EXISTS query_metrics CASCADE;
 CREATE TABLE query_metrics (
     id SERIAL PRIMARY KEY,
     query_desc VARCHAR(100),

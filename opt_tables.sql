@@ -1,6 +1,6 @@
--- ==========================================================
+--  ================
 -- 1. DIMENSION TABLES
--- ==========================================================
+--  ================
 DROP TABLE IF EXISTS symbols CASCADE;
 CREATE TABLE symbols (
     symbol VARCHAR(10) PRIMARY KEY,
@@ -22,9 +22,9 @@ INSERT INTO symbols (symbol, company_name, sector) VALUES
     ('INTC', 'Intel Corporation', 'Technology')
 ON CONFLICT (symbol) DO NOTHING;
 
--- ==========================================================
+--  ================
 -- 2. CORE TEMPORAL TABLES (PARTITIONED)
--- ==========================================================
+--  ================
 
 -- RAW TICKS: Daily Partitions on 'ts'
 DROP TABLE IF EXISTS raw_ticks CASCADE;
@@ -61,9 +61,9 @@ CREATE TABLE ohlcv_1m (
     PRIMARY KEY (ts_bucket, symbol)
 ) PARTITION BY RANGE (ts_bucket);
 
--- ==========================================================
+--  ================
 -- 3. STATE MANAGEMENT (Watermarks)
--- ==========================================================
+--  ================
 -- Watermarks track the progress of the genaggregate.py pipeline
 DROP TABLE IF EXISTS aggregation_watermarks CASCADE;
 CREATE TABLE aggregation_watermarks (
@@ -80,9 +80,9 @@ VALUES
 ON CONFLICT (aggregation_interval) DO UPDATE 
 SET last_processed_ts = EXCLUDED.last_processed_ts;
 
--- ==========================================================
+--  ================
 -- 4. PERFORMANCE LOGGING
--- ==========================================================
+--  ================
 DROP TABLE IF EXISTS query_metrics CASCADE;
 CREATE TABLE query_metrics (
     id SERIAL PRIMARY KEY,
