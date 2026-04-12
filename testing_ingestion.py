@@ -5,7 +5,7 @@ import random
 import time
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
-from connection import get_db_connection
+from utils.connection import get_db_connection
 
 symbols_list = ['GOOGL','META','TSLA','NVDA','AMZN','NFLX','MSFT','AAPL','TSMC','INTC']
 

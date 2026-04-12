@@ -37,7 +37,7 @@ def ingest_batch_list(data_generator):
             conn.commit()
             db_time = time.time() - db_start
 
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] Ticks: {total_ticks} | Gen: {gen_time*1000:.1f}ms | DB Write: {db_time*1000:.1f}ms | V-Clock: {current_v_time.strftime('%H:%M:%S')}")
+            print(f"[IST:{datetime.now().strftime('%H:%M:%S')}] Ticks: {total_ticks} | Gen: {gen_time*1000:.1f}ms | DB Write: {db_time*1000:.1f}ms | V-Clock: {current_v_time.strftime('%H:%M:%S')}")
 
             elapsed = time.time() - real_start
             if elapsed < 1.0:

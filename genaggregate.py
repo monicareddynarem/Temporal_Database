@@ -1,6 +1,8 @@
 import time
 from datetime import datetime, timedelta
-from connection import get_db_connection
+from utils.connection import get_db_connection
+
+symbols = ['GOOGL','META','TSLA','NVDA','AMZN','NFLX','MSFT','AAPL','TSMC','INTC']
 
 def ensure_partition(cursor, ts, table):
     """Pre-creates the daily partition to bypass PostgreSQL routing limits."""
@@ -41,42 +43,65 @@ def run_aggr_pipeline():
         conn = get_db_connection()
         cursor = conn.cursor()
 
+        now = datetime.now()
+        TIME_OFFSET = timedelta(days=365 * 2)
         cursor.execute("SELECT last_processed_ts FROM aggregation_watermarks WHERE aggregation_interval = '1s'")
         row = cursor.fetchone()
-        last_proc_ts = row[0] if row else datetime.now().replace(microsecond=0)
+        last_proc_ts = row[0].replace(microsecond=0) if row else (now - TIME_OFFSET).replace(tzinfo=None, microsecond=0)
+        last_close = {}
+        ins_query = """
+            INSERT INTO ohlcv_1s (ts_bucket, symbol, open_price, high_price, low_price, close_price, volume)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (ts_bucket, symbol) DO NOTHING
+        """
 
         while True:
-            time.sleep(0.5)
-            curr_win_end = last_proc_ts + timedelta(seconds=1)
-
-            query = """
-                SELECT date_trunc('second', ts) as bucket, symbol,
-                    (ARRAY_AGG(price ORDER BY ts ASC))[1], MAX(price), MIN(price),
-                    (ARRAY_AGG(price ORDER BY ts DESC))[1], SUM(volume)
-                FROM raw_ticks WHERE ts > %s AND ts <= %s
-                GROUP BY symbol, bucket ORDER BY bucket ASC
+            time.sleep(1)
+            query = """ 
+                SELECT date_trunc('second', ts) as bucket, symbol, 
+                (ARRAY_AGG(price ORDER BY ts ASC))[1], MAX(price), MIN(price), 
+                (ARRAY_AGG(price ORDER BY ts DESC))[1], SUM(volume) FROM raw_ticks WHERE ts >= %s AND ts < %s 
+                GROUP BY symbol, bucket 
+                ORDER BY bucket ASC 
             """
+            curr_win_end = (last_proc_ts + timedelta(seconds=1)).replace(microsecond=0)
+
             cursor.execute(query, (last_proc_ts, curr_win_end))
             rows = cursor.fetchall()
 
+            present_symbols = set(r[1] for r in rows)
+            missing_symbols = set(symbols) - present_symbols
+
+            ensure_partition(cursor, last_proc_ts, 'ohlcv_1s')
+
+            # insert real rows
+            for r in rows:
+                last_close[r[1]] = r[5]
+                cursor.execute(ins_query, r)
+
+            # fill missing
+            for symbol in missing_symbols:
+                if symbol in last_close:
+                    price = last_close[symbol]
+                    fill_row = (curr_win_end, symbol, price, price, price, price, 0)
+                    cursor.execute(ins_query, fill_row)
+
             if rows:
-                ensure_partition(cursor, curr_win_end, 'ohlcv_1s')
-                ins_query = """
-                    INSERT INTO ohlcv_1s (ts_bucket, symbol, open_price, high_price, low_price, close_price, volume)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT (ts_bucket, symbol) DO NOTHING
-                """
-                for r in rows:
-                    cursor.execute(ins_query, r)
                 print(f"--- [ROLLUP] Second {last_proc_ts.strftime('%H:%M:%S')} finalized ---")
-
-                if curr_win_end.second == 0:
-                    rollup_to_1m_table(cursor, curr_win_end)
-
             else:
-                print(f'No data found in the interval {last_proc_ts.strftime('%H:%M:%S')}, {curr_win_end.strftime('%H:%M:%S')}')
-                #break
+                print(f"[GAP FILLED] {last_proc_ts.strftime('%H:%M:%S')}")
+
+            if curr_win_end.second == 0:
+                rollup_to_1m_table(cursor, curr_win_end)
+
             last_proc_ts = curr_win_end
-            cursor.execute("UPDATE aggregation_watermarks SET last_processed_ts = %s WHERE aggregation_interval = '1s'", (last_proc_ts,))
+
+            cursor.execute("""
+                UPDATE aggregation_watermarks 
+                SET last_processed_ts = %s 
+                WHERE aggregation_interval = '1s'
+            """, (last_proc_ts,))
+
             conn.commit()
 
     except KeyboardInterrupt:

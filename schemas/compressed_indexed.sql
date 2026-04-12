@@ -81,12 +81,12 @@ CREATE TABLE aggregation_watermarks (
 );
 
 -- Init watermarks to the current time to avoid processing empty historical data
-INSERT INTO aggregation_watermarks (aggregation_interval, last_processed_ts) 
-VALUES 
-    ('1s', CURRENT_TIMESTAMP), 
-    ('1m', CURRENT_TIMESTAMP)
-ON CONFLICT (aggregation_interval) DO UPDATE 
-SET last_processed_ts = EXCLUDED.last_processed_ts;
+--INSERT INTO aggregation_watermarks (aggregation_interval, last_processed_ts) 
+--VALUES 
+    --('1s', CURRENT_TIMESTAMP), 
+    --('1m', CURRENT_TIMESTAMP)
+--ON CONFLICT (aggregation_interval) DO UPDATE 
+--SET last_processed_ts = EXCLUDED.last_processed_ts;
 
 -- ==========================================================
 -- 4. PERFORMANCE LOGGING

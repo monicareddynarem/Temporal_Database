@@ -69,9 +69,9 @@ CREATE TABLE aggregation_watermarks (
 );
 
 -- Init watermarks (Starting point)
-INSERT INTO aggregation_watermarks (aggregation_interval, last_processed_ts) 
-VALUES ('1s', '2026-04-09 00:00:00'), ('1m', '2026-04-09 00:00:00')
-ON CONFLICT DO NOTHING;
+--INSERT INTO aggregation_watermarks (aggregation_interval, last_processed_ts) 
+--VALUES ('1s', '2026-04-09 00:00:00'), ('1m', '2026-04-09 00:00:00')
+--ON CONFLICT DO NOTHING;
 
 --  ================
 -- 5. PERFORMANCE LOGGING

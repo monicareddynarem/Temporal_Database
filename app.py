@@ -5,7 +5,7 @@ import time
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
-from connection import get_db_connection
+from utils.connection import get_db_connection
 
 
 # 1. PAGE CONFIGURATION

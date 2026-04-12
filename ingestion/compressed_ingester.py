@@ -67,7 +67,7 @@ def ingest_compressed_arrays(data_generator):
             db_time = time.time() - db_start
 
             # Print diagnostics showing the compression ratio
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] Raw Ticks: {total_ticks} -> DB Rows: {len(bucketed)} | Gen: {gen_time*1000:.1f}ms | DB Write: {db_time*1000:.1f}ms | V-Clock: {current_v_time.strftime('%H:%M:%S')}")
+            print(f"[IST:{datetime.now().strftime('%H:%M:%S')}] Raw Ticks: {total_ticks} -> DB Rows: {len(bucketed)} | Gen: {gen_time*1000:.1f}ms | DB Write: {db_time*1000:.1f}ms | V-Clock: {current_v_time.strftime('%H:%M:%S')}")
 
             elapsed = time.time() - real_start
             if elapsed < 1.0:
