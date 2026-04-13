@@ -35,7 +35,7 @@ def fetch_chunk(start_time, end_time):
     return batch
 
 
-def generate_historic_batches(duration):
+def generate_historic_batches():
     window_size = timedelta(minutes=1)
     insflag = True
     current_start = datetime(2026, 3, 13, 9, 0, 0)
@@ -54,7 +54,8 @@ def generate_historic_batches(duration):
                         INSERT INTO aggregation_watermarks (aggregation_interval, last_processed_ts)
                         VALUES (%s, %s)
                         ON CONFLICT (aggregation_interval) 
-                        DO NOTHING
+                        DO UPDATE SET last_processed_ts = EXCLUDED.last_processed_ts
+
                     """, ('1s', hist_start.replace(microsecond=0)))
                 conn.commit()
             finally:
@@ -72,6 +73,7 @@ def generate_historic_batches(duration):
             # Make sure we still advance the clock even if it's empty, so we don't get stuck forever
             current_start = hist_end 
             continue
+
 
         # emit per second (like real stream)
         batch = []
@@ -101,5 +103,8 @@ def generate_historic_batches(duration):
             total_ticks = len(batch)
             current_v_time = batch[0][3]
             yield batch, current_v_time, gen_time, total_ticks
+
+        #move forward in time
+        current_start = hist_end
 
         

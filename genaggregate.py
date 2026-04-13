@@ -44,10 +44,10 @@ def run_aggr_pipeline():
         cursor = conn.cursor()
 
         now = datetime.now()
-        TIME_OFFSET = timedelta(days=365 * 2)
+        
         cursor.execute("SELECT last_processed_ts FROM aggregation_watermarks WHERE aggregation_interval = '1s'")
         row = cursor.fetchone()
-        last_proc_ts = row[0].replace(microsecond=0) if row else (now - TIME_OFFSET).replace(tzinfo=None, microsecond=0)
+        last_proc_ts = row[0].replace(microsecond=0) if row else (datetime(2026, 3, 13, 9, 0, 0))
         last_close = {}
         ins_query = """
             INSERT INTO ohlcv_1s (ts_bucket, symbol, open_price, high_price, low_price, close_price, volume)
@@ -93,6 +93,7 @@ def run_aggr_pipeline():
 
             if curr_win_end.second == 0:
                 rollup_to_1m_table(cursor, curr_win_end)
+
 
             last_proc_ts = curr_win_end
 
