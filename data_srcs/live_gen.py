@@ -2,9 +2,11 @@ from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockTradesRequest
 from datetime import datetime, timedelta, timezone
 import time
+from dotenv import load_dotenv
 import os
 from utils.connection import get_db_connection
 
+load_dotenv()  # Load environment variables from .env file
 API_KEY = os.getenv("APCA_API_KEY_ID")
 SECRET_KEY = os.getenv("APCA_API_SECRET_KEY")
 
@@ -35,12 +37,14 @@ def fetch_chunk(start_time, end_time):
 
 
 def generate_historic_batches(duration):
-    window_size = timedelta(minutes=10)
+    window_size = timedelta(minutes=1)
     insflag = True
+    current_start = datetime(2024, 4, 11, 14, 0, 0)
+
     while True:
         now = datetime.now(timezone.utc)
         
-        hist_start = (now - TIME_OFFSET).replace(tzinfo=None, microsecond=0)
+        hist_start = current_start
         hist_end = hist_start + window_size
 
         if insflag:
@@ -59,8 +63,17 @@ def generate_historic_batches(duration):
 
             insflag = False
 
+        print(f"\n[DOWNLOAD] Fetching Alpaca tick data from {hist_start} to {hist_end}...")
         data = fetch_chunk(hist_start, hist_end)
+        print(f"[DOWNLOAD] Success! Downloaded {len(data)} total trades. Passing to ingester...")
 
+        if not data:
+            print("[WARNING] No trades found (Market closed?). Waiting 5 seconds before trying again...")
+            time.sleep(5)
+            # Make sure we still advance the clock even if it's empty, so we don't get stuck forever
+            current_start = hist_end 
+            continue
+        
         # emit per second (like real stream)
         batch = []
         current_second = None
