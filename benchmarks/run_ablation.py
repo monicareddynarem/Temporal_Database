@@ -41,12 +41,16 @@ def main():
             
         try:
             print("\n--- TEST CONFIGURATION ---")
-            duration = int(input("Duration (virtual minutes): "))
-            speed = int(input("Speed multiplier (Virtual sec / Real sec): "))
-            
-            # Initialize the identical data generator for all tests
-            #data_stream = generate_naive_batches(duration, speed)
-            # data_stream = generate_historic_batches(duration)
+            while True:
+                ch = input("Enter 0 (random) or 1 (real-time): ").strip()
+                if ch=="0":
+                    duration = int(input("Duration (virtual minutes): "))
+                    speed = int(input("Speed multiplier (Virtual sec / Real sec): "))
+                    data_stream = generate_naive_batches(duration, speed)
+                    break
+                elif ch=="1":
+                    # data_stream = generate_historic_batches()
+                    break
             data_stream = generate_nse_batches()
 
             
