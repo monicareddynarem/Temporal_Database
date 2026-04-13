@@ -5,7 +5,8 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data_srcs.mock_gen import generate_naive_batches
-from data_srcs.live_gen import generate_historic_batches
+# from data_srcs.live_gen import generate_historic_batches
+from data_srcs.nse_gen import generate_nse_batches
 from ingestion.row_wise_ingester import ingest_row_wise
 from ingestion.batch_list_ingester import ingest_batch_list
 from ingestion.batch_numpy_ingester import ingest_batch_copy
@@ -45,7 +46,9 @@ def main():
             
             # Initialize the identical data generator for all tests
             #data_stream = generate_naive_batches(duration, speed)
-            data_stream = generate_historic_batches(duration)
+            # data_stream = generate_historic_batches(duration)
+            data_stream = generate_nse_batches()
+
             
             # Route to the selected ingester
             if choice == '1':
