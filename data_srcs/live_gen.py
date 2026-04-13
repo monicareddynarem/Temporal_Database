@@ -11,7 +11,6 @@ API_KEY = os.getenv("APCA_API_KEY_ID")
 SECRET_KEY = os.getenv("APCA_API_SECRET_KEY")
 
 client = StockHistoricalDataClient(API_KEY, SECRET_KEY)
-TIME_OFFSET = timedelta(days=365 * 2)
 def fetch_chunk(start_time, end_time):
     request = StockTradesRequest(
         symbol_or_symbols=['GOOGL','META','TSLA','NVDA','AMZN','NFLX','MSFT','AAPL','TSMC','INTC'],  # multiple symbols
@@ -39,7 +38,7 @@ def fetch_chunk(start_time, end_time):
 def generate_historic_batches(duration):
     window_size = timedelta(minutes=1)
     insflag = True
-    current_start = datetime(2024, 4, 11, 14, 0, 0)
+    current_start = datetime(2026, 3, 13, 9, 0, 0)
 
     while True:
         now = datetime.now(timezone.utc)
@@ -73,7 +72,7 @@ def generate_historic_batches(duration):
             # Make sure we still advance the clock even if it's empty, so we don't get stuck forever
             current_start = hist_end 
             continue
-        
+
         # emit per second (like real stream)
         batch = []
         current_second = None
