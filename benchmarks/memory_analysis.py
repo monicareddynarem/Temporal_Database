@@ -1,226 +1,126 @@
+# compression_test.py
+
 import numpy as np
 import matplotlib.pyplot as plt
+import lz4.frame
+import io
 import time
-import sys
-import os
-import random
-from datetime import datetime, timedelta
-import copy
+import pandas as pd
+import sys, os
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
+from data_srcs.mock_gen import generate_naive_batches
 from utils.connection import get_db_connection
-from benchmarks.index_vs_noindex import ensure_partition, reset_db
-
-# ---------------- SMART DATA GENERATOR ---------------- #
-
-def generate_smart_batches(duration_minutes, n_speed):
-    """Generates Random Walk data so LZ4 can actually compress it."""
-    symbols = ['GOOGL', 'META', 'TSLA', 'NVDA', 'AMZN', 'NFLX', 'MSFT', 'AAPL', 'TSMC', 'INTC']
-    
-    # Initialize starting prices for each symbol
-    current_prices = {sym: random.uniform(100.0, 500.0) for sym in symbols}
-    
-    start_v_time = datetime.now()
-    end_v_time = start_v_time + timedelta(minutes=duration_minutes)
-    virtual_time = start_v_time
-    
-    ticks_per_v_sec = 100
-    ms_per_tick = 1000 / ticks_per_v_sec
-    total_generated = 0
-
-    while virtual_time < end_v_time:
-        batch = []
-        gen_start = time.time()
-        
-        total_ticks = n_speed * ticks_per_v_sec
-        for _ in range(total_ticks):
-            sym = random.choice(symbols)
-            # Random walk: Price changes by a tiny amount (-$0.25 to +$0.25)
-            current_prices[sym] += random.uniform(-0.25, 0.25)
-            price = round(current_prices[sym], 2)
-            volume = random.randint(1, 100)
-            
-            batch.append((sym, price, volume, virtual_time))
-            virtual_time += timedelta(milliseconds=ms_per_tick)
-            
-        total_generated += total_ticks
-        gen_time = time.time() - gen_start
-        
-        yield batch, virtual_time, gen_time, total_generated
 
 
-# ---------------- SETUP ---------------- #
+# ---------------- HELPERS ---------------- #
 
-def setup_bucket_table(compression=False):
-    conn = get_db_connection()
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("DROP TABLE IF EXISTS raw_ticks_bucketed CASCADE;")
-
-            cursor.execute("""
-                CREATE TABLE raw_ticks_bucketed (
-                    bucket_ts TIMESTAMP,
-                    symbol TEXT,
-                    prices REAL[],
-                    volumes INT[],
-                    offsets_ms INT[]
-                ) PARTITION BY RANGE (bucket_ts);
-            """)
-
-            if compression:
-                # Force LZ4 Compression
-                cursor.execute("ALTER TABLE raw_ticks_bucketed ALTER COLUMN prices SET COMPRESSION lz4;")
-                cursor.execute("ALTER TABLE raw_ticks_bucketed ALTER COLUMN volumes SET COMPRESSION lz4;")
-                cursor.execute("ALTER TABLE raw_ticks_bucketed ALTER COLUMN offsets_ms SET COMPRESSION lz4;")
-            else:
-                # THE FIX: Force Postgres to NOT compress the arrays in the background
-                cursor.execute("ALTER TABLE raw_ticks_bucketed ALTER COLUMN prices SET STORAGE EXTERNAL;")
-                cursor.execute("ALTER TABLE raw_ticks_bucketed ALTER COLUMN volumes SET STORAGE EXTERNAL;")
-                cursor.execute("ALTER TABLE raw_ticks_bucketed ALTER COLUMN offsets_ms SET STORAGE EXTERNAL;")
-
-        conn.commit()
-    finally:
-        conn.close()
+def batch_to_tsv_bytes(batch):
+    """Serialize a batch to TSV bytes (what you'd insert via copy_from)."""
+    df = pd.DataFrame(batch, columns=['symbol', 'price', 'volume', 'ts'])
+    f = io.StringIO()
+    df.to_csv(f, sep='\t', header=False, index=False)
+    return f.getvalue().encode('utf-8')
 
 
-# ---------------- SIZE ---------------- #
-
-def get_table_size():
-    conn = get_db_connection()
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT SUM(pg_total_relation_size(relid))
-                FROM pg_catalog.pg_statio_user_tables
-                WHERE relname LIKE 'raw_ticks_bucketed%';
-            """)
-            size = cursor.fetchone()[0] or 0
-    finally:
-        conn.close()
-    return size / 1024  # Returns size in KB
+def compress_lz4(raw_bytes):
+    return lz4.frame.compress(raw_bytes, compression_level=0)  # level 0 = fast mode
 
 
-# ---------------- INGEST ---------------- #
+# ---------------- MAIN TEST ---------------- #
 
-def ingest_and_measure(data_stream):
-    conn = get_db_connection()
-    sizes = []
+def run_compression_test(duration=5, speed=5):
+    raw_sizes = []        # bytes, no compression
+    lz4_sizes = []        # bytes, after LZ4
+    ratios = []           # compression ratio per batch
+    batch_ids = []
 
-    try:
-        for i, (batch, v_time, gen_time, total) in enumerate(data_stream):
-            loop_start = time.time()
+    data_stream = generate_naive_batches(duration, speed)
 
-            # ---- BUCKETING ----
-            bucket = {}
+    for i, (batch, v_time, gen_time, total) in enumerate(data_stream):
+        raw = batch_to_tsv_bytes(batch)
+        compressed = compress_lz4(raw)
 
-            for symbol, price, volume, ts in batch:
-                # THE FIX: Bucket by the minute (second=0) to build massive arrays
-                bucket_ts = ts.replace(second=0, microsecond=0)
-                
-                # THE FIX: Key by BOTH time and symbol
-                bucket_key = (bucket_ts, symbol) 
+        raw_kb = len(raw) / 1024
+        lz4_kb = len(compressed) / 1024
+        ratio = len(raw) / max(len(compressed), 1)
 
-                if bucket_key not in bucket:
-                    bucket[bucket_key] = {
-                        "prices": [],
-                        "volumes": [],
-                        "offsets": []
-                    }
+        raw_sizes.append(raw_kb)
+        lz4_sizes.append(lz4_kb)
+        ratios.append(ratio)
+        batch_ids.append(i)
 
-                offset = int((ts - bucket_ts).total_seconds() * 1000)
-                bucket[bucket_key]["prices"].append(price)
-                bucket[bucket_key]["volumes"].append(volume)
-                bucket[bucket_key]["offsets"].append(offset)
+        print(
+            f"Batch {i:>3} | Raw: {raw_kb:6.2f} KB | "
+            f"LZ4: {lz4_kb:6.2f} KB | "
+            f"Ratio: {ratio:.3f}x | "
+            f"Savings: {(1 - lz4_kb/raw_kb)*100:.1f}%"
+        )
 
-            # ---- INSERT ----
-            with conn.cursor() as cursor:
-                for (bucket_ts, symbol), data in bucket.items(): 
-
-                    target_table = ensure_partition(
-                        cursor,
-                        bucket_ts,
-                        table="raw_ticks_bucketed"
-                    )
-
-                    cursor.execute(
-                        f"""
-                        INSERT INTO {target_table}
-                        (bucket_ts, symbol, prices, volumes, offsets_ms)
-                        VALUES (%s, %s, %s, %s, %s)
-                        """,
-                        (
-                            bucket_ts,
-                            symbol,
-                            data["prices"],
-                            data["volumes"],
-                            data["offsets"]
-                        )
-                    )
-
-            conn.commit()
-
-            # ---- SIZE ----
-            size = get_table_size()
-            sizes.append(size)
-
-            print(
-                f"[{i}] Size: {size:.2f} KB | "
-                f"Ticks: {total} | "
-                f"V-Clock: {v_time.strftime('%H:%M:%S')}"
-            )
-
-            # ---- REALISTIC STREAMING ----
-            elapsed = time.time() - loop_start
-            if elapsed < 1:
-                time.sleep(1 - elapsed)
-
-    except KeyboardInterrupt:
-        print('\nInterrupted by user')
-    finally:
-        conn.close()
-
-    return sizes
+    return batch_ids, raw_sizes, lz4_sizes, ratios
 
 
-# ---------------- MAIN ---------------- #
+# ---------------- PLOT ---------------- #
 
-def main():
-    # Keep it running long enough to generate good data
-    duration = 20
-    speed = 5
+def plot_compression(batch_ids, raw_sizes, lz4_sizes, ratios):
+    cumulative_raw = np.cumsum(raw_sizes)
+    cumulative_lz4 = np.cumsum(lz4_sizes)
 
-    data_stream = list(generate_smart_batches(duration, speed))
+    fig, axes = plt.subplots(2, 1, figsize=(12, 10))
+    fig.suptitle("Compression Analysis: LZ4 vs No Compression", fontsize=14, fontweight='bold')
 
-    # -------- NO COMPRESSION --------
-    print("\n--- WITHOUT COMPRESSION (True Raw Size) ---")
-    reset_db()
-    setup_bucket_table(compression=False)
-    sizes_no_comp = ingest_and_measure(copy.deepcopy(data_stream))
+    # ── Plot 1: Cumulative storage growth ── #
+    ax = axes[0]
+    ax.plot(batch_ids, cumulative_raw, label="No Compression", color="#1f77b4", linewidth=2)
+    ax.plot(batch_ids, cumulative_lz4, label="LZ4 Compression", color="#d62728", linewidth=2)
 
-    # -------- WITH COMPRESSION --------
-    print("\n--- WITH LZ4 COMPRESSION ---")
-    reset_db()
-    setup_bucket_table(compression=True)
-    sizes_comp = ingest_and_measure(copy.deepcopy(data_stream))
+    # Shade savings area
+    ax.fill_between(batch_ids, cumulative_lz4, cumulative_raw,
+                    alpha=0.15, color="green", label="Space saved")
 
-    # -------- PLOT --------
-    plt.figure(figsize=(10, 6))
+    # Avg lines
+    ax.axhline(np.mean(cumulative_raw), color="#1f77b4", linestyle='--',
+               linewidth=1.2, alpha=0.7, label=f"Raw avg: {np.mean(cumulative_raw):.1f} KB")
+    ax.axhline(np.mean(cumulative_lz4), color="#d62728", linestyle='--',
+               linewidth=1.2, alpha=0.7, label=f"LZ4 avg: {np.mean(cumulative_lz4):.1f} KB")
 
-    plt.plot(sizes_no_comp, label="No Compression (EXTERNAL)", marker='o', color='red')
-    plt.plot(sizes_comp, label="LZ4 Compression", marker='s', color='green')
+    total_saving_pct = (1 - cumulative_lz4[-1] / cumulative_raw[-1]) * 100
+    ax.set_title(f"Cumulative Storage Growth  |  Total saving: {total_saving_pct:.1f}%",
+                 fontweight='bold')
+    ax.set_xlabel("Batch #")
+    ax.set_ylabel("Cumulative Size (KB)")
+    ax.legend(fontsize=9, ncol=2)
+    ax.grid(True, alpha=0.3)
 
-    plt.title("Storage Growth: True Raw Size vs LZ4 Compression")
-    plt.xlabel("Time (batches)")
-    plt.ylabel("Size (KB)")
-    plt.grid(True, linestyle='--', alpha=0.7)
-    plt.legend()
+    # ── Plot 2: Per-batch compression ratio ── #
+    ax = axes[1]
+    ax.plot(batch_ids, ratios, color="#2ca02c", linewidth=1.5, alpha=0.7, label="Ratio per batch")
+    ax.axhline(np.mean(ratios), color="#2ca02c", linestyle='--', linewidth=1.8,
+               label=f"Mean ratio: {np.mean(ratios):.3f}x")
+    ax.axhline(1.0, color='gray', linestyle=':', linewidth=1.2, label="Break-even (1.0x)")
 
+    ax.set_title("Per-Batch Compression Ratio  (>1 = LZ4 saves space)", fontweight='bold')
+    ax.set_xlabel("Batch #")
+    ax.set_ylabel("Compression Ratio (raw / compressed)")
+    ax.legend(fontsize=9)
+    ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
     os.makedirs("./plots", exist_ok=True)
-    plt.savefig("./plots/memory_compression_plot.png")
-    
-    print("\nBenchmark Complete. Displaying Plot...")
-    plt.show()
+    plt.savefig("./plots/compression_comparison.png", dpi=150, bbox_inches='tight')
+    plt.close()
+    print("\nSaved → ./plots/compression_comparison.png")
+
+
+# ---------------- ENTRY ── #
 
 if __name__ == "__main__":
-    main()
+    batch_ids, raw_sizes, lz4_sizes, ratios = run_compression_test(duration=5, speed=5)
+
+    print(f"\n{'='*50}")
+    print(f"Total Raw:  {sum(raw_sizes):.2f} KB")
+    print(f"Total LZ4:  {sum(lz4_sizes):.2f} KB")
+    print(f"Overall savings: {(1 - sum(lz4_sizes)/sum(raw_sizes))*100:.1f}%")
+    print(f"Mean compression ratio: {np.mean(ratios):.3f}x")
+
+    plot_compression(batch_ids, raw_sizes, lz4_sizes, ratios)
