@@ -233,7 +233,7 @@ with tab_bench:
         st.markdown("#### Detailed Execution Metrics")
         display_df = bench_df.copy()
         # The new metric to prove algorithmic efficiency
-        display_df["Avg Time per Row (μs)"] = (display_df["Latency (ms)"] / display_df["Rows Processed"] * 1000).round(2).fillna(0)
+        display_df["Avg Time per Row (μs)"] = (display_df["Latency (ms)"] / display_df["Rows Processed"] * 1000).replace([np.inf, -np.inf], 0).round(2).fillna(0)
         
         st.dataframe(
             display_df.style.highlight_min(subset=["Latency (ms)"], color="#c3e6cb"), 
