@@ -1,0 +1,101 @@
+design-data starts from april 11,2024- 14:00:00 --for uniformity
+this file-for testing frontend
+
+--------------------------------------------------------------------------------
+1. THE TWO ARCHITECTURE GROUPS
+--------------------------------------------------------------------------------
+GROUP A: Standard Row-Based Storage (Tests 1, 2, and 3)-these use same tables-indexed.sql
+- Stores each individual trade as a distinct row in the 'raw_ticks' table.
+- Test 1: Standard INSERT statements.
+- Test 2: Standard INSERT statements with TimescaleDB-like partitioning.
+- Test 3: Batch COPY ingestion (The fastest standard ingestion).
+- Associated Tables: raw_ticks, ohlcv_1s, ohlcv_1m, aggregation_watermarks.
+
+GROUP B: Compressed Array Storage (Test 4)-use compressed_indexed.sql
+- Squashes an entire second's worth of trades into a single row using 
+  PostgreSQL arrays, which are naturally compressed via LZ4.
+- Test 4: Array-Bucketed Compression.
+- Associated Tables: raw_ticks_bucketed, ohlcv_1s, ohlcv_1m, aggregation_watermarks.
+
+--------------------------------------------------------------------------------
+2. HOW EACH TEST IS RUN (THE PIPELINE)
+--------------------------------------------------------------------------------
+1. The Ingester (run_ablation.py / live_gen.py)
+2. The Continuous Aggregator (genaggregate.py)
+3. The Dashboard (app.py)
+
+--------------------------------------------------------------------------------
+3. HANDLING ARCHITECTURE SWITCHES (THE SMART STATE MANAGER)
+--------------------------------------------------------------------------------
+Because Group A and Group B use entirely different table schemas but write to 
+the same downstream output tables (ohlcv), they cannot safely coexist in the 
+same database without causing state conflicts or duplicate key errors.
+
+To solve this, the pipeline uses a "Wipe and Rebuild" strategy to ensure a 
+clean, scientifically valid benchmarking environment.
+
+SCENARIO 1: Switching WITHIN the same group (Tests 1,2,3)
+- The Controller detects that the requested test requires the 'Standard' schema.
+- It checks the database and sees the 'Standard' schema already exists.
+- Result: NO WIPE. The system enters "Smart Resume" mode, reads the watermark, 
+  and picks up exactly where the previous test left off without losing data, resumes from the last stopped point
+
+SCENARIO 2: Switching ACROSS groups (e.g., Test 3 to Test 4)
+- The Controller detects that the requested test requires the 'Compressed' schema.
+- It checks the database and sees the 'Standard' schema is currently active.
+- Result: ARCHITECTURE SWITCH. The system automatically wipes the entire database, 
+  runs the correct SQL file (compressed_indexed.sql), resets the timeline to 
+  14:00:00, and begins a fresh benchmarking run.
+- The Aggregator ('genaggregate.py') detects the wipe in real-time, resets its 
+  internal memory, and prepares for the new timeline automatically.
+
+
+//IN SHORT
+
+--test 1,2,3 use the same tables, so switching among these tests will not cause data to wipe off, it will resume from
+  the last stopped time
+
+--if we switch from test 1,2,3 to test 4 in the next run, our current db has indexed.sql tables, but for test 4 we need
+  compressed_indexed.sql, so it wipes off all tables and creates tables from compressed_indexed.sql, and data starts again from 14:00:00
+
+--------------------------------------------------------------------------------
+4. STEP-BY-STEP TESTING GUIDE
+--------------------------------------------------------------------------------
+PREPARATION:
+first start with an empty database
+ 
+Open three separate terminal windows
+Terminal 1: Run `python genaggregate.py`
+Terminal 2: Run `streamlit run app.py` (Turn ON "Live Auto-Refresh" in the browser)
+Terminal 3: Controller terminal 
+
+PHASE 1: THE FRESH START (Group A)
+1. In Terminal 3, run `python run_ablation.py`.
+2. Select Test 3.
+3. Observe: 
+   - Terminal 3 rebuilds the Standard DB and starts ingesting from 14:00:00.
+   - Terminal 1 (Aggregator) immediately begins printing [1s ROLLUP] logs.
+   - The Streamlit chart begins drawing live candlesticks.
+   - uncompressed aggregate metrics, latency evaluation metrics are shown now
+
+PHASE 2: THE SMART RESUME (No Data Loss)
+1. Let Phase 1 run for some time
+2. In Terminal 3, press Ctrl+C to abort the run.
+3. Observe: Terminal 1 goes into [WAITING] mode. The UI stops updating.
+4. Run `python run_ablation.py` in terminal 3 again. Select Test 3.
+5. Observe:
+   - Terminal 3 prints "[INFO] Schema matches (Standard). Preparing to resume..."
+   - It seamlessly resumes ingestion from exactly where it stopped.
+   - Terminal 1 resumes rollups, and the UI chart continues without gaps.
+
+PHASE 3: THE ARCHITECTURE SWITCH (Group B)
+1. Press Ctrl+C in Terminal 3 to abort the current run.
+2. Run `python run_ablation.py` again in terminal 3
+3. Select Test 4 (Compressed Array Storage).
+4. Observe:
+   - Terminal 3 prints "[🧹] Architecture switch detected! Rebuilding tables..."
+   - The database is completely wiped and rebuilt for arrays.
+   - Terminal 1 prints "[♻️] Database wipe detected! Resetting aggregator..."
+   - The Streamlit UI resets to 14:00:00 and begins drawing the new timeline.
+   - compressed table size metrics, latency evaluation metrics are shown now 
+
