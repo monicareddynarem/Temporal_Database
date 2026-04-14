@@ -23,14 +23,12 @@ def ingest_row_wise(data_generator):
 
         print('\n--- DB INGESTER: ROW-WISE MODE ACTIVE ---')
 
-        # FIX: Correctly unpack the 4 values returned by the generator
         for batch_list, current_v_time, gen_time, total_ticks in data_generator:
             real_start = time.time()
             
             with conn.cursor() as cursor:
                 db_start = time.time()
                 target_table = ensure_partition(cursor, current_v_time)
-                # Use target_table instead of raw_ticks
                 for row in batch_list:
                     cursor.execute(
                     f"INSERT INTO {target_table} (symbol, price, volume, ts) VALUES (%s, %s, %s, %s)", 
