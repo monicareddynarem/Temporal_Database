@@ -35,7 +35,7 @@ def fetch_chunk(start_time, end_time):
     return batch
 
 
-def generate_historic_batches(duration):
+def generate_historic_batches():
     window_size = timedelta(minutes=1)
     insflag = True
     current_start = datetime(2024, 4, 11, 14, 0, 0)
@@ -73,6 +73,7 @@ def generate_historic_batches(duration):
             current_start = hist_end 
             continue
 
+
         # emit per second (like real stream)
         batch = []
         current_second = None
@@ -102,6 +103,7 @@ def generate_historic_batches(duration):
             current_v_time = batch[0][3]
             yield batch, current_v_time, gen_time, total_ticks
 
+        #move forward in time
         current_start = hist_end
 
         

@@ -126,6 +126,7 @@ def run_aggr_pipeline():
             if curr_win_end.second == 0:
                 rollup_to_1m_table(cursor, curr_win_end)
 
+
             last_proc_ts = curr_win_end
 
             cursor.execute("""

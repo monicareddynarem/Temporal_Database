@@ -5,7 +5,8 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data_srcs.mock_gen import generate_naive_batches
-from data_srcs.live_gen import generate_historic_batches
+# from data_srcs.live_gen import generate_historic_batches
+from data_srcs.nse_gen import generate_nse_batches
 from ingestion.row_wise_ingester import ingest_row_wise
 from ingestion.batch_list_ingester import ingest_batch_list
 from ingestion.batch_numpy_ingester import ingest_batch_copy
@@ -40,12 +41,18 @@ def main():
             
         try:
             print("\n--- TEST CONFIGURATION ---")
-            duration = int(input("Duration (virtual minutes): "))
-            speed = int(input("Speed multiplier (Virtual sec / Real sec): "))
-            
-            # Initialize the identical data generator for all tests
-            #data_stream = generate_naive_batches(duration, speed)
-            data_stream = generate_historic_batches(duration)
+            while True:
+                ch = input("Enter 0 (random) or 1 (real-time): ").strip()
+                if ch=="0":
+                    duration = int(input("Duration (virtual minutes): "))
+                    speed = int(input("Speed multiplier (Virtual sec / Real sec): "))
+                    data_stream = generate_naive_batches(duration, speed)
+                    break
+                elif ch=="1":
+                    # data_stream = generate_historic_batches()
+                    break
+            data_stream = generate_nse_batches()
+
             
             # Route to the selected ingester
             if choice == '1':
