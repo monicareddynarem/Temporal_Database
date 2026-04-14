@@ -18,9 +18,9 @@ import psycopg2
 def get_db_connection():
     conn = psycopg2.connect(
         host = 'localhost',
-        database = 'temporaldb',
+        database = 'postgres',
         user='postgres',
-        password='Avinash6174',
+        password='2006',
         port='5432'
     )
     return conn

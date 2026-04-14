@@ -43,11 +43,11 @@ def run_aggr_pipeline():
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        now = datetime.now()
-        TIME_OFFSET = timedelta(days=365 * 2)
+        default_start = datetime(2024, 4, 11, 14, 0, 0)
         cursor.execute("SELECT last_processed_ts FROM aggregation_watermarks WHERE aggregation_interval = '1s'")
         row = cursor.fetchone()
-        last_proc_ts = row[0].replace(microsecond=0) if row else (now - TIME_OFFSET).replace(tzinfo=None, microsecond=0)
+        last_proc_ts = row[0].replace(microsecond=0) if row else default_start
+
         last_close = {}
         ins_query = """
             INSERT INTO ohlcv_1s (ts_bucket, symbol, open_price, high_price, low_price, close_price, volume)
@@ -55,18 +55,50 @@ def run_aggr_pipeline():
             ON CONFLICT (ts_bucket, symbol) DO NOTHING
         """
 
+        cursor.execute("SELECT EXISTS (SELECT FROM pg_tables WHERE tablename = 'raw_ticks_bucketed');")
+        is_compressed = cursor.fetchone()[0]
+
         while True:
             time.sleep(1)
-            query = """ 
-                SELECT date_trunc('second', ts) as bucket, symbol, 
-                (ARRAY_AGG(price ORDER BY ts ASC))[1], MAX(price), MIN(price), 
-                (ARRAY_AGG(price ORDER BY ts DESC))[1], SUM(volume) FROM raw_ticks WHERE ts >= %s AND ts < %s 
-                GROUP BY symbol, bucket 
-                ORDER BY bucket ASC 
-            """
+
+            if is_compressed:
+                cursor.execute("SELECT MAX(bucket_ts) FROM raw_ticks_bucketed")
+            else:
+                cursor.execute("SELECT MAX(ts) FROM raw_ticks")
+                
+            max_ingested_ts = cursor.fetchone()[0]
+
+            # If DB is empty, or the aggregator has caught up to the ingester, wait!
+            if not max_ingested_ts or last_proc_ts >= max_ingested_ts:
+                continue
+            
             curr_win_end = (last_proc_ts + timedelta(seconds=1)).replace(microsecond=0)
 
-            cursor.execute(query, (last_proc_ts, curr_win_end))
+            if is_compressed:
+                query = """ 
+                    SELECT 
+                        bucket_ts as bucket, 
+                        symbol, 
+                        prices[1], 
+                        (SELECT MAX(p) FROM unnest(prices) p), 
+                        (SELECT MIN(p) FROM unnest(prices) p), 
+                        prices[array_length(prices, 1)], 
+                        (SELECT SUM(v) FROM unnest(volumes) v) 
+                    FROM raw_ticks_bucketed 
+                    WHERE bucket_ts = %s 
+                """
+                cursor.execute(query, (last_proc_ts,))
+            else:
+                query = """ 
+                    SELECT date_trunc('second', ts) as bucket, symbol, 
+                    (ARRAY_AGG(price ORDER BY ts ASC))[1], MAX(price), MIN(price), 
+                    (ARRAY_AGG(price ORDER BY ts DESC))[1], SUM(volume) 
+                    FROM raw_ticks WHERE ts >= %s AND ts < %s 
+                    GROUP BY symbol, bucket 
+                    ORDER BY bucket ASC 
+                """
+                cursor.execute(query, (last_proc_ts, curr_win_end))
+
             rows = cursor.fetchall()
 
             present_symbols = set(r[1] for r in rows)
@@ -83,7 +115,7 @@ def run_aggr_pipeline():
             for symbol in missing_symbols:
                 if symbol in last_close:
                     price = last_close[symbol]
-                    fill_row = (curr_win_end, symbol, price, price, price, price, 0)
+                    fill_row = (last_proc_ts, symbol, price, price, price, price, 0)
                     cursor.execute(ins_query, fill_row)
 
             if rows:
