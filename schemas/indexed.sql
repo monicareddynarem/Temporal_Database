@@ -1,6 +1,3 @@
---  ================
--- 1. DIMENSION TABLES
---  ================
 DROP TABLE IF EXISTS symbols CASCADE;
 CREATE TABLE symbols (
     symbol VARCHAR(10) PRIMARY KEY,
@@ -22,11 +19,6 @@ INSERT INTO symbols (symbol, company_name, sector) VALUES
     ('INTC', 'Intel Corporation', 'Technology')
 ON CONFLICT (symbol) DO NOTHING;
 
---  ================
--- 2. CORE TEMPORAL TABLES (PARTITIONED)
---  ================
-
--- RAW TICKS: Daily Partitions on 'ts'
 DROP TABLE IF EXISTS raw_ticks CASCADE;
 CREATE TABLE raw_ticks (
     ts TIMESTAMP NOT NULL,
@@ -35,7 +27,6 @@ CREATE TABLE raw_ticks (
     volume INTEGER NOT NULL
 ) PARTITION BY RANGE (ts);
 
--- 1-SECOND OHLCV: Daily Partitions on 'ts_bucket'
 DROP TABLE IF EXISTS ohlcv_1s CASCADE;
 CREATE TABLE ohlcv_1s (
     ts_bucket TIMESTAMP NOT NULL,
@@ -48,7 +39,6 @@ CREATE TABLE ohlcv_1s (
     PRIMARY KEY (ts_bucket, symbol)
 ) PARTITION BY RANGE (ts_bucket);
 
--- 1-MINUTE OHLCV: Daily Partitions on 'ts_bucket'
 DROP TABLE IF EXISTS ohlcv_1m CASCADE;
 CREATE TABLE ohlcv_1m (
     ts_bucket TIMESTAMP NOT NULL,
@@ -61,10 +51,6 @@ CREATE TABLE ohlcv_1m (
     PRIMARY KEY (ts_bucket, symbol)
 ) PARTITION BY RANGE (ts_bucket);
 
---  ================
--- 3. STATE MANAGEMENT (Watermarks)
---  ================
--- Watermarks track the progress of the genaggregate.py pipeline
 DROP TABLE IF EXISTS aggregation_watermarks CASCADE;
 CREATE TABLE aggregation_watermarks (
     aggregation_interval VARCHAR(10) PRIMARY KEY, 
@@ -72,17 +58,6 @@ CREATE TABLE aggregation_watermarks (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Init watermarks to the current time to avoid processing empty historical data
---INSERT INTO aggregation_watermarks (aggregation_interval, last_processed_ts) 
---VALUES 
-    --('1s', CURRENT_TIMESTAMP), 
-    --('1m', CURRENT_TIMESTAMP)
---ON CONFLICT (aggregation_interval) DO UPDATE 
---SET last_processed_ts = EXCLUDED.last_processed_ts;
-
---  ================
--- 4. PERFORMANCE LOGGING
---  ================
 DROP TABLE IF EXISTS query_metrics CASCADE;
 CREATE TABLE query_metrics (
     id SERIAL PRIMARY KEY,
