@@ -29,6 +29,7 @@ def fetch_ohlcv_data(symbol, table_name, start_time, end_time):
         conn.close()
 
 def run_live_benchmark(symbol, start_time, end_time):
+    """Benchmarking: Compressed Arrays vs. Optimized Aggregates"""
     conn = get_db_connection()
     cursor = conn.cursor()
     metrics = []
@@ -144,7 +145,7 @@ with tab_market:
     df = fetch_ohlcv_data(selected_symbol, table, start_dt, end_dt)
     
     if df.empty:
-        st.warning("No data found. Ensure the generator and aggregator are running.")
+        st.warning("No data found for this timeframe. Ensure the historical replay or live ingester is running.")
     else:
         df_sorted = df.sort_values('ts_bucket')
         latest_price = df.iloc[0]['close_price']
