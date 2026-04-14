@@ -20,13 +20,13 @@ def batch_to_tsv_bytes(batch):
 
 
 def compress_lz4(raw_bytes):
-    return lz4.frame.compress(raw_bytes, compression_level=0)  # level 0 = fast mode
+    return lz4.frame.compress(raw_bytes, compression_level=0)  
 
 
 def run_compression_test(duration=5, speed=5):
-    raw_sizes = []        # bytes, no compression
-    lz4_sizes = []        # bytes, after LZ4
-    ratios = []           # compression ratio per batch
+    raw_sizes = []        
+    lz4_sizes = []        
+    ratios = []          
     batch_ids = []
 
     data_stream = generate_naive_batches(duration, speed)
