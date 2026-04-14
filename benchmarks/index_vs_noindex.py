@@ -19,10 +19,19 @@ from datetime import datetime, timedelta
 
 def reset_db():
     conn = get_db_connection()
-    with conn.cursor() as cursor:
-        cursor.execute("DROP TABLE IF EXISTS raw_ticks CASCADE;")
-    conn.commit()
-    conn.close()
+    
+    # Add this safeguard!
+    if conn is None:
+        print("CRITICAL: Could not connect to the database. Check your credentials in connection.py.")
+        sys.exit(1) # Stop the script safely
+        
+    try:
+        with conn.cursor() as cursor:
+            # ... your existing reset logic (drop tables, etc) ...
+            pass
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def apply_schema_A():
