@@ -138,7 +138,6 @@ def run_test(data_stream, use_partition):
 
             df = pd.DataFrame(batch, columns=['symbol', 'price', 'volume', 'ts'])
 
-            # raw_ticks write 
             f = io.StringIO()
             df.to_csv(f, sep='\t', header=False, index=False)
             f.seek(0)
@@ -260,7 +259,6 @@ def plot_raw_results(results):
     plt.close()
     print("Saved → ./plots/raw_ticks_latency.png")
 
-    # Throughput
     fig, ax = plt.subplots(figsize=(11, 6))
     epsilon = 1e-6
     for name, (lat, db_lat, query_lat, tpts) in results.items():
@@ -315,7 +313,6 @@ def main():
             data_stream, use_partition=use_partition
         )
 
-        # raw_ticks query benchmark
         query_lat, tpts = run_query_tests()
         raw_results[name] = (lat, db_lat, query_lat, tpts)
         

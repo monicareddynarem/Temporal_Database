@@ -106,7 +106,6 @@ def main():
             
             data_stream = generate_historic_batches(duration)
             
-            # Route to the selected ingester
             if choice == '1':
                 print("\n>>> STARTING ROW-WISE ABLATION <<<")
                 ingest_row_wise(data_stream)
