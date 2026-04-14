@@ -1,15 +1,28 @@
 import numpy as np
 import time
 from datetime import datetime, timedelta
+from utils.connection import get_db_connection
 
 symbols_list = ['GOOGL','META','TSLA','NVDA','AMZN','NFLX','MSFT','AAPL','TSMC','INTC']
 
 def generate_naive_batches(duration_minutes, n_speed, ticks_per_v_sec=100):
-    """
-    Generates simulated tick data using NumPy and yields it in batches.
-    Format: list of tuples (symbol, price, volume, ts)
-    """
-    virtual_time = datetime.now()
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT last_processed_ts FROM aggregation_watermarks WHERE aggregation_interval = '1s'")
+            row = cursor.fetchone()
+            if row:
+                virtual_time = row[0].replace(tzinfo=None)
+                print(f"\n[RESUME] Found existing DB watermark. Resuming NumPy generation from {virtual_time}")
+            else:
+                virtual_time = datetime(2024, 4, 11, 14, 0, 0)
+                print(f"\n[START] Clean database detected. Starting fresh from {virtual_time}")
+    except Exception:
+        virtual_time = datetime(2024, 4, 11, 14, 0, 0)
+    finally:
+        if 'conn' in locals() and conn:
+            conn.close()
+
     end_v_time = virtual_time + timedelta(minutes=duration_minutes)
     ms_per_tick = 1000 / ticks_per_v_sec
 
@@ -25,15 +38,10 @@ def generate_naive_batches(duration_minutes, n_speed, ticks_per_v_sec=100):
         ts_step = ms_per_tick / 1000.0
         timestamps = np.arange(total_ticks) * ts_step + base_ts
         
-        # --- THE FIX IS HERE ---
-        # Convert the float timestamps into actual Python datetime objects
         dt_timestamps = [datetime.fromtimestamp(ts) for ts in timestamps.tolist()]
-        
-        # Use dt_timestamps instead of timestamps.tolist()
         batch = list(zip(syms.tolist(), prices.tolist(), volumes.tolist(), dt_timestamps))
         gen_time = time.time() - gen_start
         
         yield batch, virtual_time, gen_time, total_ticks
         
-        # Update virtual clock for the next loop
         virtual_time += timedelta(seconds=n_speed)

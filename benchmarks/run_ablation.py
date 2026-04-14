@@ -5,23 +5,84 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data_srcs.mock_gen import generate_naive_batches
-# from data_srcs.live_gen import generate_historic_batches
-from data_srcs.nse_gen import generate_nse_batches
+from data_srcs.live_gen import generate_historic_batches
 from ingestion.row_wise_ingester import ingest_row_wise
 from ingestion.batch_list_ingester import ingest_batch_list
 from ingestion.batch_numpy_ingester import ingest_batch_copy
-from ingestion.compressed_ingester import ingest_compressed_arrays # Uncomment when ready
+from ingestion.compressed_ingester import ingest_compressed_arrays 
+from utils.connection import get_db_connection 
+
+def apply_database_schema(choice):
+    """Executes the correct SQL file to completely rebuild the database schema."""
+    # Test 4 uses compressed_indexed.sql. Tests 1, 2, 3 use indexed.sql.
+    sql_filename = 'compressed_indexed.sql' if choice == '4' else 'indexed.sql'
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    sql_filepath = os.path.join(project_root, 'schemas', sql_filename)
+    
+    print(f"\n[🧹] Architecture switch detected or DB empty!")
+    print(f"[⚙️] Rebuilding tables using {sql_filename}...")
+    
+    conn = get_db_connection()
+    try:
+        with open(sql_filepath, 'r') as file:
+            sql_script = file.read()
+            
+        with conn.cursor() as cursor:
+            cursor.execute(sql_script)
+        conn.commit()
+        print(f"[✨] Database rebuilt flawlessly with {sql_filename}!")
+        
+    except FileNotFoundError:
+        print(f"\n[!] FATAL ERROR: Could not find '{sql_filename}'.")
+        print("Please ensure your .sql files are in the same directory as run_ablation.py!")
+        sys.exit(1)
+    except Exception as e:
+        conn.rollback()
+        print(f"\n[!] SQL Execution Error: {e}")
+        sys.exit(1)
+    finally:
+        conn.close()
+
+def check_and_prepare_schema(choice):
+    """
+    The Smart State Manager:
+    Checks current DB state. Returns True if we can resume, False if we wiped.
+    """
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT EXISTS (SELECT FROM pg_tables WHERE tablename = 'raw_ticks_bucketed');")
+            db_has_compressed = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT EXISTS (SELECT FROM pg_tables WHERE tablename = 'raw_ticks');")
+            db_has_standard = cursor.fetchone()[0]
+            
+        target_is_compressed = (choice == '4')
+
+        if target_is_compressed:
+            if db_has_compressed:
+                print("\n[INFO] Schema matches (Compressed). Preparing to resume...")
+                return True 
+            else:
+                apply_database_schema(choice)
+                return False 
+        else:
+            if db_has_standard:
+                print("\n[INFO] Schema matches (Standard). Preparing to resume...")
+                return True 
+            else:
+                apply_database_schema(choice)
+                return False 
+    finally:
+        conn.close()
 
 def print_menu():
     print("\n" + "="*50)
     print(" TICK DATA PIPELINE - ABLATION TEST FRAMEWORK")
     print("="*50)
-    print("Please ensure you have applied the correct SQL schema")
-    print("in your database BEFORE running the corresponding test.")
-    print("-" * 50)
-    print("1. TEST: Row-Wise INSERT (Requires baseline/indexed schema)")
-    print("2. TEST: Batch List EXECUTE_VALUES (Requires baseline/indexed schema)")
-    print("3. TEST: Batch COPY via NumPy/StringIO (Requires baseline/indexed schema)")
+    print("1. TEST: Row-Wise INSERT (Requires standard schema)")
+    print("2. TEST: Batch List EXECUTE_VALUES (Requires standard schema)")
+    print("3. TEST: Batch COPY via NumPy/StringIO (Requires standard schema)")
     print("4. TEST: Array-Bucketed Compression (Requires compressed schema)")
     print("0. Exit")
     print("="*50)
@@ -41,18 +102,16 @@ def main():
             
         try:
             print("\n--- TEST CONFIGURATION ---")
-            while True:
-                ch = input("Enter 0 (random) or 1 (real-time): ").strip()
-                if ch=="0":
-                    duration = int(input("Duration (virtual minutes): "))
-                    speed = int(input("Speed multiplier (Virtual sec / Real sec): "))
-                    data_stream = generate_naive_batches(duration, speed)
-                    break
-                elif ch=="1":
-                    # data_stream = generate_historic_batches()
-                    break
-            data_stream = generate_nse_batches()
-
+            duration = int(input("Duration (virtual minutes): "))
+            speed = int(input("Speed multiplier (Virtual sec / Real sec): "))
+            
+            # --- THE SMART STATE MANAGER ---
+            check_and_prepare_schema(choice)
+            # -------------------------------
+            
+            # Initialize the generator (it will auto-detect if it should resume or start fresh)
+            # data_stream = generate_naive_batches(duration, speed)
+            data_stream = generate_historic_batches(duration)
             
             # Route to the selected ingester
             if choice == '1':
@@ -66,8 +125,7 @@ def main():
                 ingest_batch_copy(data_stream)
             elif choice == '4':
                 print("\n>>> STARTING COMPRESSED ARRAY ABLATION <<<")
-                ingest_compressed_arrays(data_stream) # Uncomment when you add this file
-                # print("Make sure you have created ingestion/compressed_ingester.py!")
+                ingest_compressed_arrays(data_stream) 
                 
             print("\n=== TEST COMPLETE ===")
             
