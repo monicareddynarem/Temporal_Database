@@ -17,9 +17,6 @@ def ensure_partition(cursor, ts, table):
         cursor.execute(f"CREATE INDEX IF NOT EXISTS idx_look_{p_name} ON {p_name} (symbol, ts_bucket DESC)")
 
 def rollup_to_1m_table(cursor, current_ts):
-    
-    # If the clock just hit 14:01:00, subtract 1 second (14:00:59) 
-    # so we correctly target and roll up the 14:00:xx minute bucket
     target_minute = current_ts - timedelta(seconds=1)
     
     ensure_partition(cursor, target_minute, 'ohlcv_1m')
