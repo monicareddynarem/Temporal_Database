@@ -19,6 +19,7 @@ INSERT INTO symbols (symbol, company_name, sector) VALUES
     ('INTC', 'Intel Corporation', 'Technology')
 ON CONFLICT (symbol) DO NOTHING;
 
+
 DROP TABLE IF EXISTS raw_ticks CASCADE;
 CREATE TABLE raw_ticks (
     ts TIMESTAMP NOT NULL,
@@ -26,6 +27,9 @@ CREATE TABLE raw_ticks (
     price NUMERIC(10, 2) NOT NULL,
     volume INTEGER NOT NULL
 ) PARTITION BY RANGE (ts);
+
+CREATE INDEX idx_raw_ticks_ts ON raw_ticks(ts);
+CREATE INDEX idx_raw_ticks_symbol_ts ON raw_ticks(symbol, ts);
 
 DROP TABLE IF EXISTS ohlcv_1s CASCADE;
 CREATE TABLE ohlcv_1s (
@@ -39,6 +43,10 @@ CREATE TABLE ohlcv_1s (
     PRIMARY KEY (ts_bucket, symbol)
 ) PARTITION BY RANGE (ts_bucket);
 
+
+CREATE INDEX idx_ohlcv_1s_ts ON ohlcv_1s(ts_bucket);
+CREATE INDEX idx_ohlcv_1s_symbol_ts_desc ON ohlcv_1s(symbol, ts_bucket DESC);
+
 DROP TABLE IF EXISTS ohlcv_1m CASCADE;
 CREATE TABLE ohlcv_1m (
     ts_bucket TIMESTAMP NOT NULL,
@@ -51,12 +59,18 @@ CREATE TABLE ohlcv_1m (
     PRIMARY KEY (ts_bucket, symbol)
 ) PARTITION BY RANGE (ts_bucket);
 
+
+CREATE INDEX idx_ohlcv_1m_ts ON ohlcv_1m(ts_bucket);
+CREATE INDEX idx_ohlcv_1m_symbol_ts_desc ON ohlcv_1m(symbol, ts_bucket DESC);
+
+
 DROP TABLE IF EXISTS aggregation_watermarks CASCADE;
 CREATE TABLE aggregation_watermarks (
     aggregation_interval VARCHAR(10) PRIMARY KEY, 
     last_processed_ts TIMESTAMP NOT NULL,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
 
 DROP TABLE IF EXISTS query_metrics CASCADE;
 CREATE TABLE query_metrics (
@@ -65,3 +79,6 @@ CREATE TABLE query_metrics (
     execution_time_ms NUMERIC(10, 3),
     recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+
+CREATE INDEX idx_query_metrics_time ON query_metrics(recorded_at);

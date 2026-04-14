@@ -34,8 +34,10 @@ CREATE TABLE ohlcv_1s (
     low_price NUMERIC(10, 2),
     close_price NUMERIC(10, 2),
     volume INTEGER,
+    -- PKs on partitioned tables must include the partition key (ts_bucket)
     PRIMARY KEY (ts_bucket, symbol)
 ) PARTITION BY RANGE (ts_bucket);
+
 
 CREATE TABLE ohlcv_1m (
     ts_bucket TIMESTAMP NOT NULL,

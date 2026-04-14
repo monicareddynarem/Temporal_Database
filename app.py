@@ -27,7 +27,7 @@ def fetch_ohlcv_data(symbol, table_name, start_time, end_time):
         conn.close()
 
 def run_live_benchmark(symbol, start_time, end_time):
-    """Benchmarking: Compressed Arrays vs. Optimized Aggregates"""
+    
     conn = get_db_connection()
     cursor = conn.cursor()
     metrics = []

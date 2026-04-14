@@ -9,8 +9,9 @@ except ImportError:
 symbols_list = ['RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'ICICIBANK', 'SBIN', 'BHARTIARTL', 'ITC', 'LT', 'BAJFINANCE']
 
 def generate_nse_batches(poll_interval_seconds=3):
-    print(f"\n🌐 CONNECTING TO LIVE NSE API (Polling every {poll_interval_seconds}s)...")
-    print("⚠️  Warning: Do not lower the poll interval below 2s or the NSE will block your IP.")
+    
+    print(f"\n CONNECTING TO LIVE NSE API (Polling every {poll_interval_seconds}s)...")
+    print("  Warning: Do not lower the poll interval below 2s or the NSE will block your IP.")
     print("-" * 60)
     
     while True:

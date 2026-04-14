@@ -13,14 +13,4 @@ def get_db_connection():
     except Exception as e:
         print(f"Error connecting to database: {e}")
         return None
-"""
-def get_db_connection():
-    conn = psycopg2.connect(
-        host = 'localhost',
-        database = 'postgres',
-        user='postgres',
-        password='2006',
-        port='5432'
-    )
-    return conn
-"""
+
