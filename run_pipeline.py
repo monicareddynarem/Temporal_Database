@@ -1,30 +1,26 @@
 import sys
 import os
 
-# Ensure Python can find your data_sources and ingestion folders
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-# 1. Import all your Generators (Producers)
 try:
     from data_srcs.mock_gen import generate_naive_batches
     from data_srcs.nse_gen import generate_nse_batches
     from data_srcs.live_gen import generate_historic_batches
 except ImportError as e:
-    print(f"⚠️ Import Error. Make sure your generator files exist: {e}")
+    print(f" Import Error. Make sure your generator files exist: {e}")
     sys.exit(1)
 
-# 2. Import your Database Ingester (Consumer)
-# Note: Ensure the filename matches exactly where you saved the ingest_batch_copy function
 from ingestion.batch_numpy_ingester import ingest_batch_copy 
 
 def print_menu():
     print("\n" + "="*50)
-    print(" 🚀 TICK DATA INGESTION PIPELINE 🚀")
+    print("  TICK DATA INGESTION PIPELINE ")
     print("="*50)
     print("Select your Data Source:")
-    print("1. 📈 Live NSE Data (nsepython, polls every 3s)")
-    print("2. ⏪ Historical Replay (yfinance, 1-min fractal ticks)")
-    print("3. 🧪 Mock Data (High-speed simulated stress test)")
+    print("1.  Live NSE Data (nsepython, polls every 3s)")
+    print("2.  Historical Replay (yfinance, 1-min fractal ticks)")
+    print("3.  Mock Data (High-speed simulated stress test)")
     print("0. Exit")
     print("="*50)
 
@@ -66,9 +62,9 @@ def main():
                 print("Invalid selection. Try again.")
 
         except KeyboardInterrupt:
-            print("\n🛑 Pipeline safely stopped by user.")
+            print("\n Pipeline safely stopped by user.")
         except Exception as e:
-            print(f"\n❌ Pipeline Error: {e}")
+            print(f"\n Pipeline Error: {e}")
 
 if __name__ == "__main__":
     main()

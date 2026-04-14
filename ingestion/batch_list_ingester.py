@@ -24,7 +24,7 @@ def ingest_batch_list(data_generator):
 
         print('\n--- DB INGESTER: BATCH LIST (EXECUTE_VALUES) ACTIVE ---')
 
-        # FIX: Correctly unpack the 4 values
+        
         for batch_list, current_v_time, gen_time, total_ticks in data_generator:
             real_start = time.time()
             

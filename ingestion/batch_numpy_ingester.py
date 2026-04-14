@@ -25,12 +25,11 @@ def ingest_batch_copy(data_generator):
 
         print('\n--- DB INGESTER: BATCH COPY (CSV BUFFER) ACTIVE ---')
 
-        # FIX: Correctly unpack the 4 values
+        
         for batch_list, current_v_time, gen_time, total_ticks in data_generator:
             real_start = time.time()
             
-            # FIX: We need to temporarily turn the list of tuples back into a DataFrame 
-            # so we can use Pandas' lightning-fast to_csv method for the COPY buffer
+            
             df = pd.DataFrame(batch_list, columns=['symbol', 'price', 'volume', 'ts'])
             
             f = io.StringIO()

@@ -6,12 +6,12 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 from utils.connection import get_db_connection
-from streamlit_autorefresh import st_autorefresh  # <-- The new non-blocking timer
+from streamlit_autorefresh import st_autorefresh
 
-# 1. PAGE CONFIGURATION
+
 st.set_page_config(page_title="Query Stack Dashboard", layout="wide")
 
-# 2. DATABASE CORE FUNCTIONS
+
 def fetch_ohlcv_data(symbol, table_name, start_time, end_time):
     conn = get_db_connection()
     try:
@@ -29,7 +29,7 @@ def fetch_ohlcv_data(symbol, table_name, start_time, end_time):
         conn.close()
 
 def run_live_benchmark(symbol, start_time, end_time):
-    """Benchmarking: Compressed Arrays vs. Optimized Aggregates"""
+    
     conn = get_db_connection()
     cursor = conn.cursor()
     metrics = []
@@ -98,7 +98,7 @@ def fetch_storage_stats():
     finally:
         conn.close()
 
-# 3. SIDEBAR & NAVIGATION
+
 with st.sidebar:
     st.title("Controls")
     selected_symbol = st.selectbox("Symbol", ['GOOGL','META','TSLA','NVDA','AMZN','NFLX','MSFT','AAPL','TSMC','INTC'])
@@ -127,20 +127,20 @@ with st.sidebar:
     
     st.divider()
     
-    # --- THE NON-BLOCKING TIMER ---
+    
     auto_refresh = st.toggle("🔴 Live Auto-Refresh", value=False)
     if auto_refresh:
-        # Pings the script every 2000 milliseconds safely in the background
+        
         st_autorefresh(interval=2000, limit=None, key="live_dashboard_refresh")
     
     if st.button("Refresh Data Manually", use_container_width=True):
         st.cache_data.clear()
 
-# 4. MAIN LAYOUT
+
 st.title("📈 Query Stack: Temporal Database Prototype")
 tab_market, tab_bench = st.tabs(["📊 Market Analysis", "⚡ Optimization Benchmarks"])
 
-# TAB 1: MARKET ANALYSIS
+
 with tab_market:
     df = fetch_ohlcv_data(selected_symbol, table, start_dt, end_dt)
     
@@ -179,7 +179,7 @@ with tab_market:
             x=df_sorted['ts_bucket'], y=df_sorted['volume'], name='Volume', marker_color='#26A69A'
         ), row=2, col=1)
 
-        # --- THE ANTI-FLASH FIX (uirevision) ---
+        
         fig.update_layout(
             height=600, 
             xaxis_rangeslider_visible=False, 
@@ -191,11 +191,10 @@ with tab_market:
         st.subheader("Time Range Query Results (Requirement 1)")
         st.dataframe(df, use_container_width=True)
 
-# TAB 2: BENCHMARKS
+
 with tab_bench:
     st.header("System Performance Benchmarks")
     
-    # --- PERSISTENT STATE FOR BENCHMARKS ---
     if "bench_df" not in st.session_state:
         st.session_state.bench_df = None
         st.session_state.raw_sql = None
@@ -216,7 +215,7 @@ with tab_bench:
         if st.button("Clear Results", use_container_width=True):
             st.session_state.bench_df = None
 
-    # Display results if they exist in the session state
+    
     if st.session_state.bench_df is not None:
         bench_df = st.session_state.bench_df
         raw_sql = st.session_state.raw_sql

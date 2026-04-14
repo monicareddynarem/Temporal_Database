@@ -1,5 +1,3 @@
-# compression_test.py
-
 import numpy as np
 import matplotlib.pyplot as plt
 import lz4.frame
@@ -13,10 +11,8 @@ from data_srcs.mock_gen import generate_naive_batches
 from utils.connection import get_db_connection
 
 
-# ---------------- HELPERS ---------------- #
-
 def batch_to_tsv_bytes(batch):
-    """Serialize a batch to TSV bytes (what you'd insert via copy_from)."""
+    
     df = pd.DataFrame(batch, columns=['symbol', 'price', 'volume', 'ts'])
     f = io.StringIO()
     df.to_csv(f, sep='\t', header=False, index=False)
@@ -26,8 +22,6 @@ def batch_to_tsv_bytes(batch):
 def compress_lz4(raw_bytes):
     return lz4.frame.compress(raw_bytes, compression_level=0)  # level 0 = fast mode
 
-
-# ---------------- MAIN TEST ---------------- #
 
 def run_compression_test(duration=5, speed=5):
     raw_sizes = []        # bytes, no compression
@@ -60,8 +54,6 @@ def run_compression_test(duration=5, speed=5):
     return batch_ids, raw_sizes, lz4_sizes, ratios
 
 
-# ---------------- PLOT ---------------- #
-
 def plot_compression(batch_ids, raw_sizes, lz4_sizes, ratios):
     cumulative_raw = np.cumsum(raw_sizes)
     cumulative_lz4 = np.cumsum(lz4_sizes)
@@ -69,16 +61,15 @@ def plot_compression(batch_ids, raw_sizes, lz4_sizes, ratios):
     fig, axes = plt.subplots(2, 1, figsize=(12, 10))
     fig.suptitle("Compression Analysis: LZ4 vs No Compression", fontsize=14, fontweight='bold')
 
-    # ── Plot 1: Cumulative storage growth ── #
     ax = axes[0]
     ax.plot(batch_ids, cumulative_raw, label="No Compression", color="#1f77b4", linewidth=2)
     ax.plot(batch_ids, cumulative_lz4, label="LZ4 Compression", color="#d62728", linewidth=2)
 
-    # Shade savings area
+    
     ax.fill_between(batch_ids, cumulative_lz4, cumulative_raw,
                     alpha=0.15, color="green", label="Space saved")
 
-    # Avg lines
+    
     ax.axhline(np.mean(cumulative_raw), color="#1f77b4", linestyle='--',
                linewidth=1.2, alpha=0.7, label=f"Raw avg: {np.mean(cumulative_raw):.1f} KB")
     ax.axhline(np.mean(cumulative_lz4), color="#d62728", linestyle='--',
@@ -92,7 +83,7 @@ def plot_compression(batch_ids, raw_sizes, lz4_sizes, ratios):
     ax.legend(fontsize=9, ncol=2)
     ax.grid(True, alpha=0.3)
 
-    # ── Plot 2: Per-batch compression ratio ── #
+
     ax = axes[1]
     ax.plot(batch_ids, ratios, color="#2ca02c", linewidth=1.5, alpha=0.7, label="Ratio per batch")
     ax.axhline(np.mean(ratios), color="#2ca02c", linestyle='--', linewidth=1.8,
@@ -112,7 +103,6 @@ def plot_compression(batch_ids, raw_sizes, lz4_sizes, ratios):
     print("\nSaved → ./plots/compression_comparison.png")
 
 
-# ---------------- ENTRY ── #
 
 if __name__ == "__main__":
     batch_ids, raw_sizes, lz4_sizes, ratios = run_compression_test(duration=20, speed=5)

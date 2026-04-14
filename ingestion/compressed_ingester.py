@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from utils.connection import get_db_connection
 
 def ensure_partition(cursor, ts, table='raw_ticks_bucketed'):
-    """Ensures the daily partition exists for the compressed bucket table."""
+    
     date_str = ts.strftime('%Y_%m_%d')
     start_str = ts.strftime('%Y-%m-%d 00:00:00')
     end_str = (ts + timedelta(days=1)).strftime('%Y-%m-%d 00:00:00')
@@ -14,14 +14,11 @@ def ensure_partition(cursor, ts, table='raw_ticks_bucketed'):
     cursor.execute("SELECT 1 FROM pg_class WHERE relname = %s", (p_name,))
     if not cursor.fetchone():
         cursor.execute(f"CREATE TABLE IF NOT EXISTS {p_name} PARTITION OF {table} FOR VALUES FROM ('{start_str}') TO ('{end_str}')")
-        # Notice we index on bucket_ts instead of ts for the compressed table
+        
         cursor.execute(f"CREATE INDEX IF NOT EXISTS idx_bucket_{p_name} ON {p_name} (symbol, bucket_ts)")
 
 def ingest_compressed_arrays(data_generator):
-    """
-    ABLATION TEST 4: The Array-Bucket Compression method.
-    Consumes raw mock data, buckets it with Pandas, and pushes Postgres Arrays via COPY.
-    """
+    
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -33,30 +30,29 @@ def ingest_compressed_arrays(data_generator):
         for batch_list, current_v_time, gen_time, total_ticks in data_generator:
             real_start = time.time()
             
-            # 1. Convert the generator's list of tuples back into a DataFrame for Pandas processing
+            
             df = pd.DataFrame(batch_list, columns=['symbol', 'price', 'volume', 'ts'])
             df['ts'] = pd.to_datetime(df['ts'])
 
-            # 2. Bucketing Logic (The actual "Compression" step)
+            
             # Truncate to the nearest second
             df['bucket_ts'] = df['ts'].dt.floor('s')
             # Calculate the millisecond offset from the start of that second
             df['offset_ms'] = ((df['ts'] - df['bucket_ts']).dt.total_seconds() * 1000).astype(int)
 
-            # Group by the bucket and symbol, formatting them as Postgres Array Strings: {1,2,3}
+            
             bucketed = df.groupby(['bucket_ts', 'symbol']).agg({
                 'price': lambda x: '{' + ','.join(x.astype(str)) + '}',
                 'volume': lambda x: '{' + ','.join(x.astype(str)) + '}',
                 'offset_ms': lambda x: '{' + ','.join(x.astype(str)) + '}'
             }).reset_index()
             
-            # 3. Buffer to memory as TSV
+            # Buffer to memory as TSV
             f = io.StringIO()
             # quoting=3 is crucial here to prevent Pandas from adding extra quotes around our {} arrays
             bucketed.to_csv(f, sep='\t', header=False, index=False, quoting=3) 
             f.seek(0)
             
-            # 4. Stream via COPY into the database
             with conn.cursor() as cursor:
                 ensure_partition(cursor, current_v_time)
                 
@@ -66,7 +62,6 @@ def ingest_compressed_arrays(data_generator):
             conn.commit()
             db_time = time.time() - db_start
 
-            # Print diagnostics showing the compression ratio
             print(f"[IST:{datetime.now().strftime('%H:%M:%S')}] Raw Ticks: {total_ticks} -> DB Rows: {len(bucketed)} | Gen: {gen_time*1000:.1f}ms | DB Write: {db_time*1000:.1f}ms | V-Clock: {current_v_time.strftime('%H:%M:%S')}")
 
             elapsed = time.time() - real_start

@@ -1,5 +1,5 @@
 import psycopg2
-
+"""
 def get_db_connection():
     try:
         conn = psycopg2.connect(
@@ -17,10 +17,9 @@ def get_db_connection():
 def get_db_connection():
     conn = psycopg2.connect(
         host = 'localhost',
-        database = 'postgres',
+        database = 'temporaldb',
         user='postgres',
-        password='2006',
+        password='Avinash6174',
         port='5432'
     )
     return conn
-"""

@@ -14,10 +14,6 @@ from utils.connection import get_db_connection
 from datetime import datetime, timedelta
 
 
-# ============================================================
-# DB SETUP — raw_ticks
-# ============================================================
-
 def reset_db():
     conn = get_db_connection()
     with conn.cursor() as cursor:
@@ -26,10 +22,8 @@ def reset_db():
     conn.close()
 
 
-# ---------- raw_ticks schemas ----------
-
 def apply_raw_schema_A():
-    """raw_ticks: simple non-partitioned table"""
+    
     conn = get_db_connection()
     with conn.cursor() as cursor:
         cursor.execute("""
@@ -45,7 +39,7 @@ def apply_raw_schema_A():
 
 
 def apply_raw_schema_B():
-    """raw_ticks: range-partitioned on ts"""
+    
     conn = get_db_connection()
     with conn.cursor() as cursor:
         cursor.execute("""
@@ -61,7 +55,7 @@ def apply_raw_schema_B():
 
 
 def apply_raw_schema_C():
-    """raw_ticks: range-partitioned on ts + index"""
+    
     conn = get_db_connection()
     with conn.cursor() as cursor:
         cursor.execute("""
@@ -78,11 +72,6 @@ def apply_raw_schema_C():
 
 
 
-
-# ============================================================
-# PARTITION HELPERS
-# ============================================================
-
 def ensure_partition(cursor, ts, table='raw_ticks'):
     date_str = ts.strftime('%Y_%m_%d')
     start_str = ts.strftime('%Y-%m-%d 00:00:00')
@@ -98,9 +87,6 @@ def ensure_partition(cursor, ts, table='raw_ticks'):
     return p_name
 
 
-# ============================================================
-# QUERY TESTS — raw_ticks
-# ============================================================
 
 def run_query_tests(n_queries=100):
     conn = get_db_connection()
@@ -140,11 +126,6 @@ def run_query_tests(n_queries=100):
 
 
 
-
-# ============================================================
-# CORE INGEST TEST (raw_ticks )
-# ============================================================
-
 def run_test(data_stream, use_partition):
     
     latencies = []
@@ -157,7 +138,7 @@ def run_test(data_stream, use_partition):
 
             df = pd.DataFrame(batch, columns=['symbol', 'price', 'volume', 'ts'])
 
-            # ---- raw_ticks write ----
+            # raw_ticks write 
             f = io.StringIO()
             df.to_csv(f, sep='\t', header=False, index=False)
             f.seek(0)
@@ -201,10 +182,6 @@ def run_test(data_stream, use_partition):
     return latencies, db_latencies
 
 
-# ============================================================
-# PLOTTING
-# ============================================================
-
 SCHEMA_COLORS = {
     "Schema A": "#1f77b4",
     "Schema B": "#ff7f0e",
@@ -222,7 +199,7 @@ def moving_avg(x, w=5):
 
 def _plot_metric(ax, results_dict, key_idx, title, xlabel, ylabel,
                  smooth_w=SMOOTH_W, floor=None):
-    """Generic helper to plot one smoothed metric across schemas."""
+    
     for name, result_tuple in results_dict.items():
         color = SCHEMA_COLORS[name]
         data = np.array(result_tuple[key_idx])
@@ -247,10 +224,7 @@ def _plot_metric(ax, results_dict, key_idx, title, xlabel, ylabel,
 
 
 def plot_raw_results(results):
-    """
-    Plots raw_ticks results.
-    results[schema] = (lat, db_lat, query_lat, tpts)
-    """
+    
     os.makedirs('./plots', exist_ok=True)
     fig, axes = plt.subplots(3, 1, figsize=(13, 18))
     fig.suptitle("raw_ticks – Schema Benchmark", fontsize=15,
@@ -266,10 +240,9 @@ def plot_raw_results(results):
         q_arr = np.maximum(q_arr, 1e-6)
         valid = q_arr
         if len(valid) == 0:
-            #print(f"  WARNING: {name} has no valid query latency – skipping")
             print(f"WARNING: {name} empty → inserting zeros")
             valid = np.array([0])
-            #continue
+            
         smooth = moving_avg(valid, SMOOTH_W)
         mean_val = np.mean(valid)
         ax.plot(smooth, label=f"{name}", color=color, linewidth=1.4, alpha=0.8)
@@ -315,12 +288,6 @@ def plot_raw_results(results):
     print("Saved → ./plots/raw_ticks_throughput.png")
 
 
-
-
-
-# ============================================================
-# MAIN DRIVER
-# ============================================================
 
 def main():
     raw_results    = {}

@@ -10,7 +10,7 @@ from utils.connection import get_db_connection
 symbols_list = ['GOOGL','META','TSLA','NVDA','AMZN','NFLX','MSFT','AAPL','TSMC','INTC']
 
 def ensure_partition(cursor, ts, table='raw_ticks'):
-    """Pre-creates the daily partition to bypass PostgreSQL routing limits."""
+    
     date_str = ts.strftime('%Y_%m_%d')
     start_str = ts.strftime('%Y-%m-%d 00:00:00')
     end_str = (ts + timedelta(days=1)).strftime('%Y-%m-%d 00:00:00')

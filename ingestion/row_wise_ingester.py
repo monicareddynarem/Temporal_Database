@@ -23,7 +23,6 @@ def ingest_row_wise(data_generator):
 
         print('\n--- DB INGESTER: ROW-WISE MODE ACTIVE ---')
 
-        # FIX: Correctly unpack the 4 values returned by the generator
         for batch_list, current_v_time, gen_time, total_ticks in data_generator:
             real_start = time.time()
             

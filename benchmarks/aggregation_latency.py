@@ -12,7 +12,7 @@ from utils.connection import get_db_connection
 from benchmarks.index_vs_noindex import reset_db,apply_schema_A,apply_schema_B,apply_schema_C,ensure_partition
 from datetime import datetime, timedelta
 
-#   INGESTION   #
+
 
 def ingest_data(data_stream , use_partition=False):
     
@@ -51,8 +51,6 @@ def ingest_data(data_stream , use_partition=False):
     finally:
         conn.close()
 
-
-#   AGGREGATION TEST   #
 
 def run_aggregation_tests(n_queries=50):
     conn = get_db_connection()
@@ -96,15 +94,11 @@ def run_aggregation_tests(n_queries=50):
     return latencies
 
 
-#   UTIL   #
-
 def moving_avg(x, w=5):
     if len(x) < w:
         return x
     return np.convolve(x, np.ones(w)/w, mode='valid')
 
-
-#   MAIN   #
 
 def main():
     results = {}
@@ -116,28 +110,28 @@ def main():
     stream_B = copy.deepcopy(data_stream)
     stream_C = copy.deepcopy(data_stream)
 
-    # Schema A
+
     print('Schema A')
     reset_db()
     apply_schema_A()
     ingest_data(stream_A,use_partition=False)
     results["Schema A"] = run_aggregation_tests()
 
-    # Schema B
+    
     print('Schema B')
     reset_db()
     apply_schema_B()
     ingest_data(stream_B, use_partition=True)
     results["Schema B"] = run_aggregation_tests()
 
-    # Schema C
+    
     print('Schema C')
     reset_db()
     apply_schema_C()
     ingest_data(stream_C, use_partition=True)
     results["Schema C"] = run_aggregation_tests()
 
-    # -------- PLOT --------
+    
 
     plt.figure(figsize=(10, 6))
 

@@ -1,7 +1,7 @@
 import sys
 import os
 
-# Add the parent directory to the path so we can import from data_sources and ingestion
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data_srcs.mock_gen import generate_naive_batches
@@ -13,14 +13,13 @@ from ingestion.compressed_ingester import ingest_compressed_arrays
 from utils.connection import get_db_connection 
 
 def apply_database_schema(choice):
-    """Executes the correct SQL file to completely rebuild the database schema."""
-    # Test 4 uses compressed_indexed.sql. Tests 1, 2, 3 use indexed.sql.
+    
     sql_filename = 'compressed_indexed.sql' if choice == '4' else 'indexed.sql'
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     sql_filepath = os.path.join(project_root, 'schemas', sql_filename)
     
-    print(f"\n[🧹] Architecture switch detected or DB empty!")
-    print(f"[⚙️] Rebuilding tables using {sql_filename}...")
+    print(f"\n Architecture switch detected or DB empty!")
+    print(f" Rebuilding tables using {sql_filename}...")
     
     conn = get_db_connection()
     try:
@@ -30,7 +29,7 @@ def apply_database_schema(choice):
         with conn.cursor() as cursor:
             cursor.execute(sql_script)
         conn.commit()
-        print(f"[✨] Database rebuilt flawlessly with {sql_filename}!")
+        print(f" Database rebuilt flawlessly with {sql_filename}!")
         
     except FileNotFoundError:
         print(f"\n[!] FATAL ERROR: Could not find '{sql_filename}'.")
@@ -44,10 +43,7 @@ def apply_database_schema(choice):
         conn.close()
 
 def check_and_prepare_schema(choice):
-    """
-    The Smart State Manager:
-    Checks current DB state. Returns True if we can resume, False if we wiped.
-    """
+    
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -105,12 +101,9 @@ def main():
             duration = int(input("Duration (virtual minutes): "))
             speed = int(input("Speed multiplier (Virtual sec / Real sec): "))
             
-            # --- THE SMART STATE MANAGER ---
-            check_and_prepare_schema(choice)
-            # -------------------------------
             
-            # Initialize the generator (it will auto-detect if it should resume or start fresh)
-            # data_stream = generate_naive_batches(duration, speed)
+            check_and_prepare_schema(choice)
+            
             data_stream = generate_historic_batches(duration)
             
             # Route to the selected ingester
