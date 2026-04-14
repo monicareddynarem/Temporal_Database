@@ -5,7 +5,6 @@ import io
 import pandas as pd
 import sys
 import os
-import copy
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
@@ -15,23 +14,14 @@ from utils.connection import get_db_connection
 from datetime import datetime, timedelta
 
 
-#   DB SETUP   #
+# ---------------- DB SETUP ---------------- #
 
 def reset_db():
     conn = get_db_connection()
-    
-    # Add this safeguard!
-    if conn is None:
-        print("CRITICAL: Could not connect to the database. Check your credentials in connection.py.")
-        sys.exit(1) # Stop the script safely
-        
-    try:
-        with conn.cursor() as cursor:
-            # ... your existing reset logic (drop tables, etc) ...
-            pass
-        conn.commit()
-    finally:
-        conn.close()
+    with conn.cursor() as cursor:
+        cursor.execute("DROP TABLE IF EXISTS raw_ticks CASCADE;")
+    conn.commit()
+    conn.close()
 
 
 def apply_schema_A():
@@ -86,7 +76,7 @@ def apply_schema_C():
     conn.close()
 
 
-#   PARTITION HANDLING   #
+# ---------------- PARTITION HANDLING ---------------- #
 
 def ensure_partition(cursor, ts, table='raw_ticks'):
     date_str = ts.strftime('%Y_%m_%d')
@@ -105,7 +95,7 @@ def ensure_partition(cursor, ts, table='raw_ticks'):
 
     return p_name
 
-#   QUERY TEST   #
+# ---------------- QUERY TEST ---------------- #
 
 def run_query_tests(n_queries=100):
     conn = get_db_connection()
@@ -160,7 +150,7 @@ def run_query_tests(n_queries=100):
 
     return latencies, throughputs
 
-#   CORE TEST   #
+# ---------------- CORE TEST ---------------- #
 
 def run_test(data_stream,use_partition):
     latencies = []
@@ -221,7 +211,7 @@ def run_test(data_stream,use_partition):
     return latencies,db_latencies
 
 
-#   MAIN DRIVER   #
+# ---------------- MAIN DRIVER ---------------- #
 def moving_avg(x, w=5):
     return np.convolve(x, np.ones(w)/w, mode='valid')
 
@@ -231,7 +221,122 @@ def measure_query_latency(conn, query, params=None):
         cursor.execute(query, params)
         cursor.fetchall()  # force execution
         return time.time() - start
+# ---------------- PLOTTING (FIXED) ---------------- #
 
+def plot_results(results):
+    import matplotlib.ticker as ticker
+
+    SCHEMA_COLORS = {
+        "Schema A": "#1f77b4",
+        "Schema B": "#ff7f0e",
+        "Schema C": "#2ca02c",
+    }
+    AVG_STYLE = dict(linestyle='--', linewidth=1.2, alpha=0.85)
+    SMOOTH_W_BATCH = 10   # wider window → cleaner trend lines
+    SMOOTH_W_QUERY = 5
+
+    def moving_avg(x, w):
+        if len(x) < w:
+            return np.array(x)
+        return np.convolve(x, np.ones(w) / w, mode='valid')
+
+    fig, axes = plt.subplots(3, 1, figsize=(13, 18))
+    fig.suptitle("DB Schema Benchmark", fontsize=15, fontweight='bold', y=1.01)
+
+    # ── 1. DB WRITE LATENCY ──────────────────────────────────────────────── #
+    ax = axes[0]
+    for name, (lat, db_lat, query_lat, tpts) in results.items():
+        color = SCHEMA_COLORS[name]
+        smooth = moving_avg(db_lat, SMOOTH_W_BATCH)
+        mean_val = np.mean(db_lat)
+
+        ax.plot(smooth, label=f"{name}", color=color, linewidth=1.4, alpha=0.8)
+        ax.axhline(mean_val, color=color, label=f"{name} avg ({mean_val*1000:.2f} ms)",
+                   **AVG_STYLE)
+
+    ax.set_title("DB Write Latency Comparison", fontweight='bold')
+    ax.set_xlabel("Batch #")
+    ax.set_ylabel("DB Latency (sec)")
+    ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.4f'))
+    ax.legend(ncol=2, fontsize=8)
+    ax.grid(True, alpha=0.3)
+
+    # ── 2. END-TO-END LATENCY ────────────────────────────────────────────── #
+    ax = axes[1]
+    for name, (lat, db_lat, query_lat, tpts) in results.items():
+        color = SCHEMA_COLORS[name]
+        smooth = moving_avg(lat, SMOOTH_W_BATCH)
+        mean_val = np.mean(lat)
+
+        ax.plot(smooth, label=f"{name}", color=color, linewidth=1.4, alpha=0.8)
+        ax.axhline(mean_val, color=color, label=f"{name} avg ({mean_val*1000:.2f} ms)",
+                   **AVG_STYLE)
+
+    ax.set_title("End-to-End Latency Comparison", fontweight='bold')
+    ax.set_xlabel("Batch #")
+    ax.set_ylabel("Latency (sec)")
+    ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.4f'))
+    ax.legend(ncol=2, fontsize=8)
+    ax.grid(True, alpha=0.3)
+
+    # ── 3. QUERY LATENCY ────────────────────────────────────────────────── #
+    ax = axes[2]
+    for name, (lat, db_lat, query_lat, tpts) in results.items():
+        color = SCHEMA_COLORS[name]
+
+        # Filter out near-zero artefacts (empty partition hits returning ~0 s)
+        q_arr = np.array(query_lat)
+        valid  = q_arr[q_arr > 1e-4]          # drop sub-0.1 ms ghost results
+        if len(valid) == 0:
+            print(f"  WARNING: {name} has no valid query latency data — skipping")
+            continue
+
+        smooth = moving_avg(valid, SMOOTH_W_QUERY)
+        mean_val = np.mean(valid)
+
+        ax.plot(smooth, label=f"{name}", color=color, linewidth=1.4, alpha=0.8)
+        ax.axhline(mean_val, color=color, label=f"{name} avg ({mean_val*1000:.2f} ms)",
+                   **AVG_STYLE)
+
+    ax.set_title("Query Latency Comparison  (sub-0.1 ms ghost hits excluded)", fontweight='bold')
+    ax.set_xlabel("Query #")
+    ax.set_ylabel("Latency (sec)")
+    ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.4f'))
+    ax.legend(ncol=2, fontsize=8)
+    ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig("./plots/combined_latency_plot.png", dpi=150, bbox_inches='tight')
+    plt.close()
+    print("Saved → ./plots/combined_latency_plot.png")
+
+    # ── 4. THROUGHPUT ───────────────────────────────────────────────────── #
+    fig, ax = plt.subplots(figsize=(11, 6))
+    epsilon = 1e-6
+
+    for name, (lat, db_lat, query_lat, tpts) in results.items():
+        color = SCHEMA_COLORS[name]
+        tp = np.array(tpts)
+        tp = np.clip(tp, epsilon, np.percentile(tp[tp > epsilon], 95))
+        smooth = moving_avg(tp, SMOOTH_W_QUERY)
+        mean_val = np.mean(smooth)
+
+        ax.plot(smooth, label=f"{name}", color=color, linewidth=1.4,
+                marker='o', markersize=2, alpha=0.8)
+        ax.axhline(mean_val, color=color, label=f"{name} avg ({mean_val:,.0f} rows/s)",
+                   **AVG_STYLE)
+
+    ax.set_title("Query Throughput Comparison (rows/sec)", fontweight='bold')
+    ax.set_xlabel("Query #")
+    ax.set_ylabel("Throughput (rows/sec)")
+    ax.set_yscale('log')
+    ax.legend(ncol=2, fontsize=8)
+    ax.grid(True, alpha=0.3, which='both')
+    plt.tight_layout()
+    plt.savefig("./plots/throughput_plot.png", dpi=150, bbox_inches='tight')
+    plt.close()
+    print("Saved → ./plots/throughput_plot.png")
+    
 def main():
     results = {}
 
@@ -241,11 +346,8 @@ def main():
     # Schema A
     reset_db()
     apply_schema_A()
-    data_stream = list(generate_naive_batches(duration, speed))
-    stream_A = copy.deepcopy(data_stream)
-    stream_B = copy.deepcopy(data_stream)
-    stream_C = copy.deepcopy(data_stream)
-    lat, db_lat = run_test(stream_A, use_partition=False)
+    data_stream = generate_naive_batches(duration, speed)
+    lat, db_lat = run_test(data_stream, use_partition=False)
     query_lat,tpts = run_query_tests()
     results["Schema A"] = (lat, db_lat, query_lat, tpts)
 
@@ -254,8 +356,8 @@ def main():
     # Schema B
     reset_db()
     apply_schema_B()
-    #data_stream = generate_naive_batches(duration, speed)
-    lat, db_lat = run_test(stream_B, use_partition=True)
+    data_stream = generate_naive_batches(duration, speed)
+    lat, db_lat = run_test(data_stream, use_partition=True)
     query_lat,tpts  = run_query_tests()
     results["Schema B"] = (lat, db_lat, query_lat,tpts)
 
@@ -263,82 +365,14 @@ def main():
     # Schema C
     reset_db()
     apply_schema_C()
-    #data_stream = generate_naive_batches(duration, speed)
-    lat, db_lat = run_test(stream_C, use_partition=True)
+    data_stream = generate_naive_batches(duration, speed)
+    lat, db_lat = run_test(data_stream, use_partition=True)
     query_lat,tpts = run_query_tests()
     results["Schema C"] = (lat, db_lat, query_lat, tpts)
 
 
     try:
-        fig, axes = plt.subplots(3, 1, figsize=(12, 18))
-
-        # -------- DB LATENCY --------
-        for name, (lat, db_lat, query_lat,tpts) in results.items():
-            smooth_db = moving_avg(db_lat, w=5)
-            axes[0].plot(smooth_db, label=f"{name} (DB)")
-            print(f"{name} Avg DB Latency: {np.mean(db_lat):.5f}")
-
-        axes[0].set_title("DB Write Latency Comparison")
-        axes[0].set_xlabel("Batch")
-        axes[0].set_ylabel("DB Latency (sec)")
-        axes[0].legend()
-
-
-        # -------- TOTAL LATENCY --------
-        for name, (lat, db_lat, query_lat,tpts) in results.items():
-            smooth_lat = moving_avg(lat, w=5)
-            axes[1].plot(smooth_lat, label=f"{name}")
-            print(f"{name} Avg Total Latency: {np.mean(lat):.5f}")
-
-        axes[1].set_title("End-to-End Latency Comparison")
-        axes[1].set_xlabel("Batch")
-        axes[1].set_ylabel("Latency (sec)")
-        axes[1].legend()
-
-
-        # -------- QUERY LATENCY --------
-        for name, (lat, db_lat, query_lat,tpts) in results.items():
-            smooth_q = moving_avg(query_lat, w=3)
-            axes[2].plot(smooth_q, label=f"{name}")
-            print(f"{name} Avg Query Latency: {np.mean(query_lat):.5f}")
-
-        axes[2].set_title("Query Latency Comparison")
-        axes[2].set_xlabel("Query #")
-        axes[2].set_ylabel("Latency (sec)")
-        axes[2].legend()
-
-
-        plt.tight_layout()
-        plt.savefig("./plots/combined_latency_plot.png")
-        plt.close()
-
-
-        plt.figure(figsize=(10, 6))
-
-        epsilon = 1e-6
-
-        for name, (lat, db_lat, query_lat, tpts) in results.items():
-            smooth_tp = np.array(moving_avg(tpts, w=5))
-
-            smooth_tp = np.clip(
-                smooth_tp,
-                epsilon,
-                np.percentile(smooth_tp, 95)
-            )
-
-            plt.plot(smooth_tp, label=f"{name}", marker='o', markersize=3)
-
-            print(f"{name} Avg Query Throughput: {np.mean(smooth_tp):.5f}")
-
-        plt.legend()
-        plt.title("Query Throughput Comparison (rows/sec)")
-        plt.xlabel("Query #")
-        plt.ylabel("Throughput (rows/sec)")
-        plt.yscale('log')
-
-        plt.savefig("./plots/throughput_plot.png")
-        plt.close()
-
+        plot_results(results)
 
     except KeyboardInterrupt:
         print("\nPlot window closed manually (Ctrl+C)")
