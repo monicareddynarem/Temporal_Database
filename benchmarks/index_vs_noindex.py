@@ -103,14 +103,28 @@ def run_query_tests(n_queries=100):
     throughputs = []
 
     try:
-        now = datetime.now()
+        with conn.cursor() as cursor:
+            #  Get actual data bounds
+            cursor.execute("SELECT MIN(ts), MAX(ts) FROM raw_ticks;")
+            data_start, data_end = cursor.fetchone()
+
+        # Safety check
+        if data_start is None or data_end is None:
+            print("No data found in table!")
+            return [], []
+
+        total_range = (data_end - data_start).total_seconds()
+        epsilon = 1e-9
 
         for i in range(n_queries):
-            # Vary time window size (important!)
-            window = timedelta(seconds=30 + i*2)
+            #  Randomize window size (better than linear growth)
+            window_size = np.random.uniform(10, min(120, total_range))
+            window = timedelta(seconds=window_size)
 
-            t2 = now - timedelta(seconds=i*5)
-            t1 = t2 - window
+            #  Pick random valid end time
+            offset = np.random.uniform(0, total_range - window_size)
+            t1 = data_start + timedelta(seconds=offset)
+            t2 = t1 + window
 
             q = """
                 SELECT COUNT(*) FROM raw_ticks
@@ -121,17 +135,15 @@ def run_query_tests(n_queries=100):
 
             with conn.cursor() as cursor:
                 cursor.execute(q, (t1, t2))
-                result = cursor.fetchone()[0]  # number of rows
+                result = cursor.fetchone()[0]
 
             elapsed = time.time() - start
 
             latencies.append(elapsed)
 
-            # Throughput = rows processed per second
-            if elapsed > 0:
-                throughputs.append(result / elapsed)
-            else:
-                throughputs.append(0)
+            #  Safe throughput calculation
+            throughput = result / max(elapsed, epsilon)
+            throughputs.append(throughput)
 
     finally:
         conn.close()
@@ -303,7 +315,7 @@ def main():
 
             plt.plot(smooth_tp, label=f"{name}", marker='o', markersize=3)
 
-            print(f"{name} Avg Query Throughput: {np.mean(smooth_tp):.2f}")
+            print(f"{name} Avg Query Throughput: {np.mean(smooth_tp):.5f}")
 
         plt.legend()
         plt.title("Query Throughput Comparison (rows/sec)")
