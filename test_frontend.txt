@@ -99,3 +99,4 @@ PHASE 3: THE ARCHITECTURE SWITCH (Group B)
    - The Streamlit UI resets to 14:00:00 and begins drawing the new timeline.
    - compressed table size metrics, latency evaluation metrics are shown now 
 
+--we can now compare the evaluation metrics from both compressed/uncompressed tables from phase 1 and phase 2
