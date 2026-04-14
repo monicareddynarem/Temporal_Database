@@ -115,7 +115,7 @@ def plot_compression(batch_ids, raw_sizes, lz4_sizes, ratios):
 # ---------------- ENTRY ── #
 
 if __name__ == "__main__":
-    batch_ids, raw_sizes, lz4_sizes, ratios = run_compression_test(duration=5, speed=5)
+    batch_ids, raw_sizes, lz4_sizes, ratios = run_compression_test(duration=20, speed=5)
 
     print(f"\n{'='*50}")
     print(f"Total Raw:  {sum(raw_sizes):.2f} KB")
