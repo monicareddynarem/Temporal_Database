@@ -6,11 +6,9 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 from utils.connection import get_db_connection
-from streamlit_autorefresh import st_autorefresh
-
+from streamlit_autorefresh import st_autorefresh  
 
 st.set_page_config(page_title="Query Stack Dashboard", layout="wide")
-
 
 def fetch_ohlcv_data(symbol, table_name, start_time, end_time):
     conn = get_db_connection()
@@ -98,7 +96,6 @@ def fetch_storage_stats():
     finally:
         conn.close()
 
-
 with st.sidebar:
     st.title("Controls")
     selected_symbol = st.selectbox("Symbol", ['GOOGL','META','TSLA','NVDA','AMZN','NFLX','MSFT','AAPL','TSMC','INTC'])
@@ -127,19 +124,15 @@ with st.sidebar:
     
     st.divider()
     
-    
     auto_refresh = st.toggle("🔴 Live Auto-Refresh", value=False)
     if auto_refresh:
-        
         st_autorefresh(interval=2000, limit=None, key="live_dashboard_refresh")
     
     if st.button("Refresh Data Manually", use_container_width=True):
         st.cache_data.clear()
 
-
 st.title("📈 Query Stack: Temporal Database Prototype")
 tab_market, tab_bench = st.tabs(["📊 Market Analysis", "⚡ Optimization Benchmarks"])
-
 
 with tab_market:
     df = fetch_ohlcv_data(selected_symbol, table, start_dt, end_dt)
@@ -179,7 +172,6 @@ with tab_market:
             x=df_sorted['ts_bucket'], y=df_sorted['volume'], name='Volume', marker_color='#26A69A'
         ), row=2, col=1)
 
-        
         fig.update_layout(
             height=600, 
             xaxis_rangeslider_visible=False, 
@@ -190,7 +182,6 @@ with tab_market:
 
         st.subheader("Time Range Query Results (Requirement 1)")
         st.dataframe(df, use_container_width=True)
-
 
 with tab_bench:
     st.header("System Performance Benchmarks")
@@ -215,7 +206,6 @@ with tab_bench:
         if st.button("Clear Results", use_container_width=True):
             st.session_state.bench_df = None
 
-    
     if st.session_state.bench_df is not None:
         bench_df = st.session_state.bench_df
         raw_sql = st.session_state.raw_sql
@@ -231,7 +221,6 @@ with tab_bench:
 
         st.markdown("#### Detailed Execution Metrics")
         display_df = bench_df.copy()
-        # The new metric to prove algorithmic efficiency
         display_df["Avg Time per Row (μs)"] = (display_df["Latency (ms)"] / display_df["Rows Processed"] * 1000).replace([np.inf, -np.inf], 0).round(2).fillna(0)
         
         st.dataframe(

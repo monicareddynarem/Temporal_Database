@@ -44,7 +44,6 @@ def main():
                 start_date = input("Enter Start Date (YYYY-MM-DD): ").strip()
                 end_date = input("Enter End Date (YYYY-MM-DD): ").strip()
                 
-                # Fetch fractal tick data for the requested dates
                 data_stream = generate_historic_batches(start_date, end_date)
                 
                 if data_stream:

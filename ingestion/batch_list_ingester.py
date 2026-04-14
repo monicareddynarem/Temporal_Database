@@ -24,14 +24,12 @@ def ingest_batch_list(data_generator):
 
         print('\n--- DB INGESTER: BATCH LIST (EXECUTE_VALUES) ACTIVE ---')
 
-        
         for batch_list, current_v_time, gen_time, total_ticks in data_generator:
             real_start = time.time()
             
             with conn.cursor() as cursor:
                 db_start = time.time()
                 target_table = ensure_partition(cursor, current_v_time)
-                # Use target_table instead of raw_ticks
                 sql = f"INSERT INTO {target_table} (symbol, price, volume, ts) VALUES %s"
                 psycopg2.extras.execute_values(cursor, sql, batch_list)
             conn.commit()

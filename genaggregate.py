@@ -39,7 +39,6 @@ def rollup_to_1m_table(cursor, current_ts):
         GROUP BY symbol, minute_bucket
         ON CONFLICT (ts_bucket, symbol) DO NOTHING;
     """
-    # Pass the target_minute instead of current_ts
     cursor.execute(query, (target_minute, target_minute))
     
     minute_str = target_minute.strftime('%H:%M')
@@ -75,13 +74,11 @@ def run_aggr_pipeline():
         while True:
             time.sleep(1)
             
-            
             try:
                 cursor.execute("SELECT EXISTS (SELECT FROM pg_tables WHERE tablename = 'aggregation_watermarks');")
                 if cursor.fetchone()[0]:
                     cursor.execute("SELECT last_processed_ts FROM aggregation_watermarks WHERE aggregation_interval = '1s'")
                     wm_row = cursor.fetchone()
-                    
                     
                     if not wm_row and last_proc_ts > default_start:
                         last_proc_ts = default_start
@@ -89,17 +86,14 @@ def run_aggr_pipeline():
                         print("\n Database wipe detected (empty watermarks)! Resetting aggregator to 14:00:00...")
                         conn.commit()
                     
-                    
                     elif wm_row and wm_row[0] < last_proc_ts:
                         last_proc_ts = wm_row[0]
                         sys.stdout.write("\r" + " " * 80 + "\r")
                         print(f"\n Database reset detected! Rewinding aggregator to {last_proc_ts.strftime('%H:%M:%S')}...")
                         conn.commit()
             except Exception:
-                
                 conn.rollback()
                 continue
-            
             
             cursor.execute("SELECT EXISTS (SELECT FROM pg_tables WHERE tablename = 'raw_ticks_bucketed');")
             is_compressed = cursor.fetchone()[0]

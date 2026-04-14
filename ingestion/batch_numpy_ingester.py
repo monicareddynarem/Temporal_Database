@@ -25,10 +25,8 @@ def ingest_batch_copy(data_generator):
 
         print('\n--- DB INGESTER: BATCH COPY (CSV BUFFER) ACTIVE ---')
 
-        
         for batch_list, current_v_time, gen_time, total_ticks in data_generator:
             real_start = time.time()
-            
             
             df = pd.DataFrame(batch_list, columns=['symbol', 'price', 'volume', 'ts'])
             
@@ -39,7 +37,6 @@ def ingest_batch_copy(data_generator):
             with conn.cursor() as cursor:
                 db_start = time.time()
                 target_table = ensure_partition(cursor, current_v_time)
-                # Use target_table instead of raw_ticks
                 cursor.copy_from(f, target_table, sep='\t', columns=('symbol', 'price', 'volume', 'ts'))
             conn.commit()
             db_time = time.time() - db_start

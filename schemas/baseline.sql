@@ -19,14 +19,12 @@ INSERT INTO symbols (symbol, company_name, sector) VALUES
     ('INTC', 'Intel Corporation', 'Technology')
 ON CONFLICT (symbol) DO NOTHING;
 
-
 CREATE TABLE raw_ticks (
     ts TIMESTAMP NOT NULL,
     symbol VARCHAR(10) NOT NULL REFERENCES symbols(symbol),
     price NUMERIC(10, 2) NOT NULL,
     volume INTEGER NOT NULL
 ) PARTITION BY RANGE (ts);
-
 
 CREATE TABLE ohlcv_1s (
     ts_bucket TIMESTAMP NOT NULL,
@@ -52,19 +50,11 @@ CREATE TABLE ohlcv_1m (
     PRIMARY KEY (ts_bucket, symbol)
 ) PARTITION BY RANGE (ts_bucket);
 
-
-
 CREATE TABLE aggregation_watermarks (
     aggregation_interval VARCHAR(10) PRIMARY KEY, 
     last_processed_ts TIMESTAMP NOT NULL,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-
--- Init watermarks (Starting point)
---INSERT INTO aggregation_watermarks (aggregation_interval, last_processed_ts) 
---VALUES ('1s', '2026-04-09 00:00:00'), ('1m', '2026-04-09 00:00:00')
---ON CONFLICT DO NOTHING;
-
 
 CREATE TABLE query_metrics (
     id SERIAL PRIMARY KEY,

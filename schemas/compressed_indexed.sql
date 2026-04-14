@@ -1,4 +1,7 @@
+<<<<<<< HEAD
 
+=======
+>>>>>>> origin/master
 DROP TABLE IF EXISTS symbols CASCADE;
 CREATE TABLE symbols (
     symbol VARCHAR(10) PRIMARY KEY,
@@ -20,8 +23,11 @@ INSERT INTO symbols (symbol, company_name, sector) VALUES
     ('INTC', 'Intel Corporation', 'Technology')
 ON CONFLICT (symbol) DO NOTHING;
 
+<<<<<<< HEAD
 
 
+=======
+>>>>>>> origin/master
 DROP TABLE IF EXISTS raw_ticks CASCADE;
 
 CREATE TABLE raw_ticks_bucketed (
@@ -29,15 +35,21 @@ CREATE TABLE raw_ticks_bucketed (
     symbol VARCHAR(10) NOT NULL REFERENCES symbols(symbol),
     prices REAL[] NOT NULL,
     volumes INT[] NOT NULL,
+<<<<<<< HEAD
     offsets_ms INT[] NOT NULL
+=======
+    offsets_ms INT[] NOT NULL 
+>>>>>>> origin/master
 ) PARTITION BY RANGE (bucket_ts);
 
--- Enable fast LZ4 compression
 ALTER TABLE raw_ticks_bucketed ALTER COLUMN prices SET COMPRESSION lz4;
 ALTER TABLE raw_ticks_bucketed ALTER COLUMN volumes SET COMPRESSION lz4;
 ALTER TABLE raw_ticks_bucketed ALTER COLUMN offsets_ms SET COMPRESSION lz4;
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> origin/master
 DROP TABLE IF EXISTS ohlcv_1s CASCADE;
 CREATE TABLE ohlcv_1s (
     ts_bucket TIMESTAMP NOT NULL,
@@ -50,7 +62,10 @@ CREATE TABLE ohlcv_1s (
     PRIMARY KEY (ts_bucket, symbol)
 ) PARTITION BY RANGE (ts_bucket);
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> origin/master
 DROP TABLE IF EXISTS ohlcv_1m CASCADE;
 CREATE TABLE ohlcv_1m (
     ts_bucket TIMESTAMP NOT NULL,
@@ -63,7 +78,10 @@ CREATE TABLE ohlcv_1m (
     PRIMARY KEY (ts_bucket, symbol)
 ) PARTITION BY RANGE (ts_bucket);
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> origin/master
 DROP TABLE IF EXISTS aggregation_watermarks CASCADE;
 CREATE TABLE aggregation_watermarks (
     aggregation_interval VARCHAR(10) PRIMARY KEY, 
@@ -71,6 +89,7 @@ CREATE TABLE aggregation_watermarks (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+<<<<<<< HEAD
 -- Init watermarks to the current time to avoid processing empty historical data
 --INSERT INTO aggregation_watermarks (aggregation_interval, last_processed_ts) 
 --VALUES 
@@ -80,6 +99,8 @@ CREATE TABLE aggregation_watermarks (
 --SET last_processed_ts = EXCLUDED.last_processed_ts;
 
 
+=======
+>>>>>>> origin/master
 DROP TABLE IF EXISTS query_metrics CASCADE;
 CREATE TABLE query_metrics (
     id SERIAL PRIMARY KEY,
