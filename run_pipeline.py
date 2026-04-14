@@ -1,10 +1,8 @@
 import sys
 import os
 
-# Ensure Python can find your data_sources and ingestion folders
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-# 1. Import all your Generators (Producers)
 try:
     from data_srcs.mock_gen import generate_naive_batches
     from data_srcs.nse_gen import generate_nse_batches
@@ -13,8 +11,6 @@ except ImportError as e:
     print(f"⚠️ Import Error. Make sure your generator files exist: {e}")
     sys.exit(1)
 
-# 2. Import your Database Ingester (Consumer)
-# Note: Ensure the filename matches exactly where you saved the ingest_batch_copy function
 from ingestion.batch_numpy_ingester import ingest_batch_copy 
 
 def print_menu():
@@ -48,7 +44,6 @@ def main():
                 start_date = input("Enter Start Date (YYYY-MM-DD): ").strip()
                 end_date = input("Enter End Date (YYYY-MM-DD): ").strip()
                 
-                # Fetch fractal tick data for the requested dates
                 data_stream = generate_historic_batches(start_date, end_date)
                 
                 if data_stream:

@@ -17,9 +17,6 @@ def ensure_partition(cursor, ts, table):
         cursor.execute(f"CREATE INDEX IF NOT EXISTS idx_look_{p_name} ON {p_name} (symbol, ts_bucket DESC)")
 
 def rollup_to_1m_table(cursor, current_ts):
-    # --- THE FIX: LOOK BACKWARDS ---
-    # If the clock just hit 14:01:00, subtract 1 second (14:00:59) 
-    # so we correctly target and roll up the 14:00:xx minute bucket!
     target_minute = current_ts - timedelta(seconds=1)
     
     ensure_partition(cursor, target_minute, 'ohlcv_1m')
@@ -39,7 +36,6 @@ def rollup_to_1m_table(cursor, current_ts):
         GROUP BY symbol, minute_bucket
         ON CONFLICT (ts_bucket, symbol) DO NOTHING;
     """
-    # Pass the target_minute instead of current_ts
     cursor.execute(query, (target_minute, target_minute))
     
     minute_str = target_minute.strftime('%H:%M')
@@ -75,31 +71,26 @@ def run_aggr_pipeline():
         while True:
             time.sleep(1)
             
-            # --- THE SMART WIPE & REWIND DETECTOR ---
             try:
                 cursor.execute("SELECT EXISTS (SELECT FROM pg_tables WHERE tablename = 'aggregation_watermarks');")
                 if cursor.fetchone()[0]:
                     cursor.execute("SELECT last_processed_ts FROM aggregation_watermarks WHERE aggregation_interval = '1s'")
                     wm_row = cursor.fetchone()
                     
-                    # Case 1: DB wiped and generator hasn't started yet (Table empty)
                     if not wm_row and last_proc_ts > default_start:
                         last_proc_ts = default_start
                         sys.stdout.write("\r" + " " * 80 + "\r") 
                         print("\n[♻️] Database wipe detected (empty watermarks)! Resetting aggregator to 14:00:00...")
                         conn.commit()
                     
-                    # Case 2: DB wiped and generator already injected 14:00:00 (Time went backwards)
                     elif wm_row and wm_row[0] < last_proc_ts:
                         last_proc_ts = wm_row[0]
                         sys.stdout.write("\r" + " " * 80 + "\r")
                         print(f"\n[♻️] Database reset detected! Rewinding aggregator to {last_proc_ts.strftime('%H:%M:%S')}...")
                         conn.commit()
             except Exception:
-                # Table might be actively dropping right now. Wait for it to finish.
                 conn.rollback()
                 continue
-            # ----------------------------------------
             
             cursor.execute("SELECT EXISTS (SELECT FROM pg_tables WHERE tablename = 'raw_ticks_bucketed');")
             is_compressed = cursor.fetchone()[0]
