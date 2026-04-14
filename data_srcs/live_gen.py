@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 import os
 from utils.connection import get_db_connection
 
-load_dotenv()
+load_dotenv()  
 API_KEY = os.getenv("APCA_API_KEY_ID")
 SECRET_KEY = os.getenv("APCA_API_SECRET_KEY")
 
@@ -14,40 +14,38 @@ client = StockHistoricalDataClient(API_KEY, SECRET_KEY)
 
 def fetch_chunk(start_time, end_time):
     request = StockTradesRequest(
-        symbol_or_symbols=['GOOGL','META','TSLA','NVDA','AMZN','NFLX','MSFT','AAPL','TSMC','INTC'],
+        symbol_or_symbols=['GOOGL','META','TSLA','NVDA','AMZN','NFLX','MSFT','AAPL','TSMC','INTC'],  # multiple symbols
         start=start_time,
         end=end_time
     )
+
     trades = client.get_stock_trades(request)
+
     batch = []
+
     for symbol, trade_list in trades.data.items():
         for t in trade_list:
-            batch.append((symbol, float(t.price), int(t.size), t.timestamp.replace(tzinfo=None)))
+            batch.append((
+                symbol,
+                float(t.price),
+                int(t.size),
+                t.timestamp.replace(tzinfo=None)
+            ))
+
     batch.sort(key=lambda x: x[3])
     return batch
 
-def generate_historic_batches(duration):
+
+def generate_historic_batches(duration_minutes, speed_multiplier):
+
     window_size = timedelta(minutes=1)
     insflag = True
     
-    try:
-        conn = get_db_connection()
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT last_processed_ts FROM aggregation_watermarks WHERE aggregation_interval = '1s'")
-            row = cursor.fetchone()
-            if row:
-                current_start = row[0].replace(tzinfo=None)
-                print(f"\n[RESUME] Found existing DB watermark. Resuming Alpaca download from {current_start}")
-            else:
-                current_start = datetime(2024, 4, 11, 14, 0, 0)
-                print(f"\n[START] Clean database detected. Starting fresh from {current_start}")
-    except Exception:
-        current_start = datetime(2024, 4, 11, 14, 0, 0)
-    finally:
-        if 'conn' in locals() and conn:
-            conn.close()
+    current_start = datetime(2024, 4, 11, 14, 0, 0)
+    final_end_time = current_start + timedelta(minutes=duration_minutes)
 
-    while True:
+    while current_start < final_end_time:
+        
         hist_start = current_start
         hist_end = hist_start + window_size
 
@@ -64,6 +62,7 @@ def generate_historic_batches(duration):
                 conn.commit()
             finally:
                 conn.close()
+
             insflag = False
 
         print(f"\n[DOWNLOAD] Fetching Alpaca tick data from {hist_start} to {hist_end}...")
@@ -81,6 +80,7 @@ def generate_historic_batches(duration):
 
         for row in data:
             ts = row[3].replace(microsecond=0)
+
             if current_second is None:
                 current_second = ts
 
@@ -88,10 +88,14 @@ def generate_historic_batches(duration):
                 batch.append(row)
             else:
                 gen_time = 0.0 
-                total_ticks = sum(b[2] for b in batch)
+                total_ticks = len(batch) 
                 current_v_time = batch[0][3]
+
                 yield batch, current_v_time, gen_time, total_ticks
-                time.sleep(1)
+                
+                if speed_multiplier > 0:
+                    time.sleep(1.0 / speed_multiplier)
+
                 batch = [row]
                 current_second = ts
 
@@ -100,5 +104,8 @@ def generate_historic_batches(duration):
             total_ticks = len(batch)
             current_v_time = batch[0][3]
             yield batch, current_v_time, gen_time, total_ticks
+            
+            if speed_multiplier > 0:
+                time.sleep(1.0 / speed_multiplier)
 
         current_start = hist_end

@@ -1,7 +1,6 @@
 import sys
 import os
 
-# Ensure we can import from data_srcs and ingestion in the root directory
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
 from data_srcs.live_gen import generate_historic_batches
@@ -10,11 +9,11 @@ from ingestion.compressed_ingester import ingest_compressed_arrays
 from utils.connection import get_db_connection
 
 def apply_database_schema(schema_filename):
-    """Automatically wipes and rebuilds the PostgreSQL schema before every test."""
+    """wipes all tables in the public schema, then rebuilds."""
     project_root = os.path.abspath(os.path.dirname(__file__))
     sql_filepath = os.path.join(project_root, 'schemas', schema_filename)
     
-    print(f"\n[🧹] Automating DB Wipe: Preparing {schema_filename} environment...")
+    print(f"\nDropping all tables and restarting...")
     
     conn = get_db_connection()
     try:
@@ -22,9 +21,22 @@ def apply_database_schema(schema_filename):
             sql_script = file.read()
             
         with conn.cursor() as cursor:
+            cursor.execute("""
+                DO $$ 
+                DECLARE 
+                    r RECORD; 
+                BEGIN 
+                    FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') 
+                    LOOP 
+                        EXECUTE 'DROP TABLE IF EXISTS ' || quote_ident(r.tablename) || ' CASCADE'; 
+                    END LOOP; 
+                END $$;
+            """)
+            
             cursor.execute(sql_script)
+            
         conn.commit()
-        print(f"[✨] Database cleanly rebuilt from scratch using {schema_filename}!")
+        print(f"Database rebuilt cleanly using {schema_filename}!")
         
     except FileNotFoundError:
         print(f"\n[!] FATAL ERROR: Could not find '{schema_filename}'.")
@@ -61,10 +73,10 @@ def main():
             continue
             
         try:
-            print("\n--- TEST CONFIGURATION ---")
+            print("\nTEST CONFIGURATION:")
             duration = int(input("Duration (virtual minutes): "))
+            speed = int(input("Speed multiplier (e.g., 10x): "))
             
-            # Route choices to the correct SQL file and Ingestion method
             if choice == '1':
                 schema_filename = 'baseline.sql'
                 ingester = ingest_batch_copy
@@ -78,23 +90,21 @@ def main():
                 ingester = ingest_compressed_arrays
                 test_name = "COMPRESSED ARRAY"
 
-            # 1. Automatically wipe and setup the database
             apply_database_schema(schema_filename)
             
-            # 2. Initialize your Alpaca generator (starts from same consistent time)
-            data_stream = generate_historic_batches(duration)
+            data_stream = generate_historic_batches(duration, speed)
             
-            # 3. Run Ingestion
-            print(f"\n>>> PUSHING DATA FOR {test_name} TEST <<<")
+            print(f"\n>>> PUSHING DATA FOR {test_name} TEST (Speed: {speed}x) <<<")
             ingester(data_stream) 
                 
             print("\n=== INGESTION COMPLETE ===")
             print("You can now check your live benchmarks in Streamlit.")
             
         except ValueError:
-            print("Error: Please enter a valid integer for duration.")
+            print("Error: Please enter valid integers for duration and speed.")
         except KeyboardInterrupt:
             print("\nTest aborted by user.")
+        
 
 if __name__ == "__main__":
     main()
