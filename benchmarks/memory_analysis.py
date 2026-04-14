@@ -9,11 +9,10 @@ import copy
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Removed naive generator, keeping your custom DB imports
 from utils.connection import get_db_connection
 from benchmarks.index_vs_noindex import ensure_partition, reset_db
 
-# ---------------- SMART DATA GENERATOR (THE FIX) ---------------- #
+# ---------------- SMART DATA GENERATOR ---------------- #
 
 def generate_smart_batches(duration_minutes, n_speed):
     """Generates Random Walk data so LZ4 can actually compress it."""
@@ -70,10 +69,15 @@ def setup_bucket_table(compression=False):
             """)
 
             if compression:
-                # Force LZ4 compression on the arrays
+                # Force LZ4 Compression
                 cursor.execute("ALTER TABLE raw_ticks_bucketed ALTER COLUMN prices SET COMPRESSION lz4;")
                 cursor.execute("ALTER TABLE raw_ticks_bucketed ALTER COLUMN volumes SET COMPRESSION lz4;")
                 cursor.execute("ALTER TABLE raw_ticks_bucketed ALTER COLUMN offsets_ms SET COMPRESSION lz4;")
+            else:
+                # THE FIX: Force Postgres to NOT compress the arrays in the background
+                cursor.execute("ALTER TABLE raw_ticks_bucketed ALTER COLUMN prices SET STORAGE EXTERNAL;")
+                cursor.execute("ALTER TABLE raw_ticks_bucketed ALTER COLUMN volumes SET STORAGE EXTERNAL;")
+                cursor.execute("ALTER TABLE raw_ticks_bucketed ALTER COLUMN offsets_ms SET STORAGE EXTERNAL;")
 
         conn.commit()
     finally:
@@ -107,13 +111,14 @@ def ingest_and_measure(data_stream):
         for i, (batch, v_time, gen_time, total) in enumerate(data_stream):
             loop_start = time.time()
 
-            # ---- BUCKETING (THE FIX) ----
+            # ---- BUCKETING ----
             bucket = {}
 
             for symbol, price, volume, ts in batch:
-                bucket_ts = ts.replace(second=(ts.second // 30) * 30, microsecond=0)
+                # THE FIX: Bucket by the minute (second=0) to build massive arrays
+                bucket_ts = ts.replace(second=0, microsecond=0)
                 
-                # FIXED: Key by BOTH time and symbol
+                # THE FIX: Key by BOTH time and symbol
                 bucket_key = (bucket_ts, symbol) 
 
                 if bucket_key not in bucket:
@@ -130,7 +135,6 @@ def ingest_and_measure(data_stream):
 
             # ---- INSERT ----
             with conn.cursor() as cursor:
-                # FIXED: Unpack the composite key
                 for (bucket_ts, symbol), data in bucket.items(): 
 
                     target_table = ensure_partition(
@@ -147,7 +151,7 @@ def ingest_and_measure(data_stream):
                         """,
                         (
                             bucket_ts,
-                            symbol, # Pass the isolated symbol here
+                            symbol,
                             data["prices"],
                             data["volumes"],
                             data["offsets"]
@@ -172,7 +176,7 @@ def ingest_and_measure(data_stream):
                 time.sleep(1 - elapsed)
 
     except KeyboardInterrupt:
-        print('Interrupted by user')
+        print('\nInterrupted by user')
     finally:
         conn.close()
 
@@ -182,14 +186,14 @@ def ingest_and_measure(data_stream):
 # ---------------- MAIN ---------------- #
 
 def main():
+    # Keep it running long enough to generate good data
     duration = 20
     speed = 5
 
-    # Use the new Smart Generator
     data_stream = list(generate_smart_batches(duration, speed))
 
     # -------- NO COMPRESSION --------
-    print("\n--- WITHOUT COMPRESSION (PGLZ Default) ---")
+    print("\n--- WITHOUT COMPRESSION (True Raw Size) ---")
     reset_db()
     setup_bucket_table(compression=False)
     sizes_no_comp = ingest_and_measure(copy.deepcopy(data_stream))
@@ -203,16 +207,15 @@ def main():
     # -------- PLOT --------
     plt.figure(figsize=(10, 6))
 
-    plt.plot(sizes_no_comp, label="Default Compression (PGLZ)", marker='o')
-    plt.plot(sizes_comp, label="LZ4 Compression", marker='s')
+    plt.plot(sizes_no_comp, label="No Compression (EXTERNAL)", marker='o', color='red')
+    plt.plot(sizes_comp, label="LZ4 Compression", marker='s', color='green')
 
-    plt.title("Storage Growth: Default vs LZ4 Compression (Random Walk Data)")
+    plt.title("Storage Growth: True Raw Size vs LZ4 Compression")
     plt.xlabel("Time (batches)")
     plt.ylabel("Size (KB)")
     plt.grid(True, linestyle='--', alpha=0.7)
     plt.legend()
 
-    # Create plots directory if it doesn't exist
     os.makedirs("./plots", exist_ok=True)
     plt.savefig("./plots/memory_compression_plot.png")
     
