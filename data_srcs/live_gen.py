@@ -14,7 +14,7 @@ client = StockHistoricalDataClient(API_KEY, SECRET_KEY)
 
 def fetch_chunk(start_time, end_time):
     request = StockTradesRequest(
-        symbol_or_symbols=['GOOGL','META','TSLA','NVDA','AMZN','NFLX','MSFT','AAPL','TSMC','INTC'],  # multiple symbols
+        symbol_or_symbols=['GOOGL','META','TSLA','NVDA','AMZN','NFLX','MSFT','AAPL','TSMC','INTC'],  
         start=start_time,
         end=end_time
     )
