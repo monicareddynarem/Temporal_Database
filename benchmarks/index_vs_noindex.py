@@ -5,6 +5,7 @@ import io
 import pandas as pd
 import sys
 import os
+import copy
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
@@ -14,7 +15,7 @@ from utils.connection import get_db_connection
 from datetime import datetime, timedelta
 
 
-# ---------------- DB SETUP ---------------- #
+#   DB SETUP   #
 
 def reset_db():
     conn = get_db_connection()
@@ -76,7 +77,7 @@ def apply_schema_C():
     conn.close()
 
 
-# ---------------- PARTITION HANDLING ---------------- #
+#   PARTITION HANDLING   #
 
 def ensure_partition(cursor, ts, table='raw_ticks'):
     date_str = ts.strftime('%Y_%m_%d')
@@ -95,7 +96,7 @@ def ensure_partition(cursor, ts, table='raw_ticks'):
 
     return p_name
 
-# ---------------- QUERY TEST ---------------- #
+#   QUERY TEST   #
 
 def run_query_tests(n_queries=100):
     conn = get_db_connection()
@@ -150,7 +151,7 @@ def run_query_tests(n_queries=100):
 
     return latencies, throughputs
 
-# ---------------- CORE TEST ---------------- #
+#   CORE TEST   #
 
 def run_test(data_stream,use_partition):
     latencies = []
@@ -211,7 +212,7 @@ def run_test(data_stream,use_partition):
     return latencies,db_latencies
 
 
-# ---------------- MAIN DRIVER ---------------- #
+#   MAIN DRIVER   #
 def moving_avg(x, w=5):
     return np.convolve(x, np.ones(w)/w, mode='valid')
 
@@ -225,14 +226,17 @@ def measure_query_latency(conn, query, params=None):
 def main():
     results = {}
 
-    duration = 5
+    duration = 20
     speed = 5
 
     # Schema A
     reset_db()
     apply_schema_A()
-    data_stream = generate_naive_batches(duration, speed)
-    lat, db_lat = run_test(data_stream, use_partition=False)
+    data_stream = list(generate_naive_batches(duration, speed))
+    stream_A = copy.deepcopy(data_stream)
+    stream_B = copy.deepcopy(data_stream)
+    stream_C = copy.deepcopy(data_stream)
+    lat, db_lat = run_test(stream_A, use_partition=False)
     query_lat,tpts = run_query_tests()
     results["Schema A"] = (lat, db_lat, query_lat, tpts)
 
@@ -241,8 +245,8 @@ def main():
     # Schema B
     reset_db()
     apply_schema_B()
-    data_stream = generate_naive_batches(duration, speed)
-    lat, db_lat = run_test(data_stream, use_partition=True)
+    #data_stream = generate_naive_batches(duration, speed)
+    lat, db_lat = run_test(stream_B, use_partition=True)
     query_lat,tpts  = run_query_tests()
     results["Schema B"] = (lat, db_lat, query_lat,tpts)
 
@@ -250,8 +254,8 @@ def main():
     # Schema C
     reset_db()
     apply_schema_C()
-    data_stream = generate_naive_batches(duration, speed)
-    lat, db_lat = run_test(data_stream, use_partition=True)
+    #data_stream = generate_naive_batches(duration, speed)
+    lat, db_lat = run_test(stream_C, use_partition=True)
     query_lat,tpts = run_query_tests()
     results["Schema C"] = (lat, db_lat, query_lat, tpts)
 
