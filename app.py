@@ -156,7 +156,7 @@ with tab_market:
 
         st.divider()
 
-        st.subheader("Financial Charting (Requirement 2)")
+        st.subheader("Financial Charting")
         fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_width=[0.3, 0.7])
         
         fig.add_trace(go.Candlestick(
@@ -180,7 +180,7 @@ with tab_market:
         )
         st.plotly_chart(fig, use_container_width=True)
 
-        st.subheader("Time Range Query Results (Requirement 1)")
+        st.subheader("Time Range Query Results")
         st.dataframe(df, use_container_width=True)
 
 with tab_bench:
@@ -224,7 +224,7 @@ with tab_bench:
         display_df["Avg Time per Row (μs)"] = (display_df["Latency (ms)"] / display_df["Rows Processed"] * 1000).replace([np.inf, -np.inf], 0).round(2).fillna(0)
         
         st.dataframe(
-            display_df.style.highlight_min(subset=["Latency (ms)"], color="#c3e6cb"), 
+            display_df.style.highlight_min(subset=["Latency (ms)"], color="#09561b"), 
             use_container_width=True
         )
 
