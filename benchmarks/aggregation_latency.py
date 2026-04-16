@@ -9,7 +9,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data_srcs.mock_gen import generate_naive_batches
 from utils.connection import get_db_connection
-from benchmarks.index_vs_noindex import reset_db,apply_schema_A,apply_schema_B,apply_schema_C,ensure_partition
+from benchmarks.index_vs_noindex import reset_db,apply_raw_schema_A,apply_raw_schema_B,apply_raw_schema_C,ensure_partition
 from datetime import datetime, timedelta
 
 
@@ -113,21 +113,21 @@ def main():
 
     print('Schema A')
     reset_db()
-    apply_schema_A()
+    apply_raw_schema_A()
     ingest_data(stream_A,use_partition=False)
     results["Schema A"] = run_aggregation_tests()
 
     
     print('Schema B')
     reset_db()
-    apply_schema_B()
+    apply_raw_schema_B()
     ingest_data(stream_B, use_partition=True)
     results["Schema B"] = run_aggregation_tests()
 
     
     print('Schema C')
     reset_db()
-    apply_schema_C()
+    apply_raw_schema_C()
     ingest_data(stream_C, use_partition=True)
     results["Schema C"] = run_aggregation_tests()
 
